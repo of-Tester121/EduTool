@@ -1,8 +1,8 @@
 # EduUtil - Windows tweak / install / cleanup toolbox
 # Run (admin or not, it self-elevates):
-#   irm "https://raw.githubusercontent.com/YOURUSER/EduUtil/main/EduUtil.ps1" | iex
-   $RepoUrl = 'https://raw.githubusercontent.com/of-Tester121/EduTool/main/EduUtil.ps1'
-$RepoUrl = 'https://raw.githubusercontent.com/YOURUSER/EduUtil/main/EduUtil.ps1'   # <- change this
+#   irm "https://raw.githubusercontent.com/of-Tester121/EduTool/main/EduUtil.ps1" | iex
+
+$RepoUrl = 'https://raw.githubusercontent.com/of-Tester121/EduTool/main/EduUtil.ps1'
 
 # ---------- self-elevate ----------
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
@@ -153,6 +153,235 @@ $Tweaks = @(
        Undo  = { powercfg -h on } }
 )
 
+# ---------- extreme helpers ----------
+function Set-SvcStart($names, $mode) {
+    foreach ($n in $names) {
+        if (Get-Service $n -ErrorAction SilentlyContinue) {
+            sc.exe config $n start= $mode | Out-Null
+            if ($mode -eq 'disabled') { Stop-Service $n -Force -ErrorAction SilentlyContinue }
+            elseif ($mode -in 'auto','delayed-auto') { Start-Service $n -ErrorAction SilentlyContinue }
+        }
+    }
+}
+function Set-Tasks($tasks, $enable) {
+    $flag = if ($enable) { '/enable' } else { '/disable' }
+    foreach ($t in $tasks) { schtasks /change /tn $t $flag 2>&1 | Out-Null }
+}
+function Remove-Prop($path, $names) {
+    foreach ($n in $names) { Remove-ItemProperty $path $n -ErrorAction SilentlyContinue }
+}
+
+# ---------- EXTREME tweaks (Risk: Low / Medium / High) ----------
+$Extreme = @(
+    @{ Name = 'Disable SysMain (Superfetch)'; Risk = 'Medium'
+       Desc = 'Stops background preloading + disk thrash. Great on SSDs, slower app launches on HDDs.'
+       Apply = { Set-SvcStart @('SysMain') 'disabled' }
+       Undo  = { Set-SvcStart @('SysMain') 'auto' } },
+
+    @{ Name = 'Disable Windows Search indexer'; Risk = 'Medium'
+       Desc = 'Kills constant indexing CPU/disk use. Start/Explorer search gets slower.'
+       Apply = { Set-SvcStart @('WSearch') 'disabled' }
+       Undo  = { Set-SvcStart @('WSearch') 'delayed-auto' } },
+
+    @{ Name = 'Disable Xbox services'; Risk = 'Medium'
+       Desc = 'Breaks Xbox app, Game Pass and Xbox sign-in (incl. Minecraft Bedrock login). Fine for Steam/Java games.'
+       Apply = { Set-SvcStart @('XblAuthManager','XblGameSave','XboxNetApiSvc','XboxGipSvc') 'disabled' }
+       Undo  = { Set-SvcStart @('XblAuthManager','XblGameSave','XboxNetApiSvc','XboxGipSvc') 'demand' } },
+
+    @{ Name = 'Disable Print Spooler + Fax'; Risk = 'Medium'
+       Desc = 'No printing while off. Also closes the PrintNightmare attack surface.'
+       Apply = { Set-SvcStart @('Spooler','Fax') 'disabled' }
+       Undo  = { Set-SvcStart @('Spooler') 'auto'; Set-SvcStart @('Fax') 'demand' } },
+
+    @{ Name = 'Disable Bluetooth services'; Risk = 'Medium'
+       Desc = 'Only do this on a desktop with no Bluetooth headset, controller or mouse.'
+       Apply = { Set-SvcStart @('bthserv','BTAGService','BthAvctpSvc') 'disabled' }
+       Undo  = { Set-SvcStart @('bthserv','BTAGService','BthAvctpSvc') 'demand' } },
+
+    @{ Name = 'Disable useless background services'; Risk = 'Medium'
+       Desc = 'Maps, retail demo, error reporting, Insider, geolocation, hotspot, WMP sharing, remote registry, link tracking, dmwappush, phone, wallet, diag hub.'
+       Apply = { Set-SvcStart @('MapsBroker','RetailDemo','WerSvc','wisvc','lfsvc','icssvc','WMPNetworkSvc','RemoteRegistry','TrkWks','dmwappushservice','PhoneSvc','WalletService','diagnosticshub.standardcollector.service') 'disabled' }
+       Undo  = { Set-SvcStart @('MapsBroker','RetailDemo','WerSvc','wisvc','lfsvc','icssvc','WMPNetworkSvc','TrkWks','dmwappushservice','PhoneSvc','WalletService','diagnosticshub.standardcollector.service') 'demand'; Set-SvcStart @('RemoteRegistry') 'disabled' } },
+
+    @{ Name = 'Disable Delivery Optimization (P2P updates)'; Risk = 'Low'
+       Desc = 'Stops Windows uploading updates to other PCs with your bandwidth.'
+       Apply = { Set-SvcStart @('DoSvc') 'disabled'; Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DeliveryOptimization' 'DODownloadMode' 0 }
+       Undo  = { Set-SvcStart @('DoSvc') 'delayed-auto'; Remove-Prop 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DeliveryOptimization' @('DODownloadMode') } },
+
+    @{ Name = 'Disable telemetry scheduled tasks'; Risk = 'Low'
+       Desc = 'Turns off Compatibility Appraiser, CEIP, USB CEIP and error-report tasks.'
+       Apply = { Set-Tasks @('\Microsoft\Windows\Application Experience\Microsoft Compatibility Appraiser','\Microsoft\Windows\Application Experience\ProgramDataUpdater','\Microsoft\Windows\Customer Experience Improvement Program\Consolidator','\Microsoft\Windows\Customer Experience Improvement Program\UsbCeip','\Microsoft\Windows\Windows Error Reporting\QueueReporting') $false }
+       Undo  = { Set-Tasks @('\Microsoft\Windows\Application Experience\Microsoft Compatibility Appraiser','\Microsoft\Windows\Application Experience\ProgramDataUpdater','\Microsoft\Windows\Customer Experience Improvement Program\Consolidator','\Microsoft\Windows\Customer Experience Improvement Program\UsbCeip','\Microsoft\Windows\Windows Error Reporting\QueueReporting') $true } },
+
+    @{ Name = 'Block background apps'; Risk = 'Low'
+       Desc = 'Store apps can no longer run in the background eating RAM/CPU.'
+       Apply = { Set-Reg 'HKCU:\Software\Microsoft\Windows\CurrentVersion\BackgroundAccessApplications' 'GlobalUserDisabled' 1; Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\AppPrivacy' 'LetAppsRunInBackground' 2 }
+       Undo  = { Set-Reg 'HKCU:\Software\Microsoft\Windows\CurrentVersion\BackgroundAccessApplications' 'GlobalUserDisabled' 0; Remove-Prop 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\AppPrivacy' @('LetAppsRunInBackground') } },
+
+    @{ Name = 'Disable Widgets / News feed'; Risk = 'Low'
+       Desc = 'Removes the widgets/news process from running.'
+       Apply = { Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Dsh' 'AllowNewsAndInterests' 0 }
+       Undo  = { Remove-Prop 'HKLM:\SOFTWARE\Policies\Microsoft\Dsh' @('AllowNewsAndInterests') } },
+
+    @{ Name = 'Disable OneDrive'; Risk = 'Medium'
+       Desc = 'Policy-disables OneDrive sync and kills it. Do not use if you rely on OneDrive.'
+       Apply = { Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\OneDrive' 'DisableFileSyncNGSC' 1; taskkill /f /im OneDrive.exe 2>&1 | Out-Null }
+       Undo  = { Remove-Prop 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\OneDrive' @('DisableFileSyncNGSC') } },
+
+    @{ Name = 'Remove preinstalled bloat apps'; Risk = 'Medium'
+       Desc = 'Uninstalls News, Weather, Solitaire, Office hub, Feedback Hub, Phone Link, Groove/Movies, Clipchamp, Teams, Todo, Maps, Skype, etc. NO auto-undo (reinstall from Store).'
+       Apply = {
+           $bloat = 'Microsoft.BingNews','Microsoft.BingWeather','Microsoft.GetHelp','Microsoft.Getstarted','Microsoft.MicrosoftSolitaireCollection','Microsoft.MicrosoftOfficeHub','Microsoft.WindowsFeedbackHub','Microsoft.YourPhone','Microsoft.ZuneMusic','Microsoft.ZuneVideo','Clipchamp.Clipchamp','Microsoft.People','Microsoft.Todos','Microsoft.PowerAutomateDesktop','Microsoft.549981C3F5F10','MicrosoftTeams','Microsoft.WindowsMaps','Microsoft.SkypeApp','Microsoft.MixedReality.Portal','Microsoft.Microsoft3DViewer'
+           foreach ($b in $bloat) { Get-AppxPackage -AllUsers -Name $b | Remove-AppxPackage -AllUsers -ErrorAction SilentlyContinue }
+       }
+       Undo  = { Log 'Removed apps cannot be auto-restored. Reinstall them from the Microsoft Store.' } },
+
+    @{ Name = 'Max-performance visual effects'; Risk = 'Low'
+       Desc = 'Turns off window/taskbar animations and fades. Sign out to fully apply.'
+       Apply = {
+           Set-Reg 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects' 'VisualFXSetting' 2
+           Set-ItemProperty 'HKCU:\Control Panel\Desktop' 'UserPreferencesMask' ([byte[]](0x90,0x12,0x03,0x80,0x10,0x00,0x00,0x00)) -Type Binary
+           Set-Reg 'HKCU:\Control Panel\Desktop\WindowMetrics' 'MinAnimate' '0' 'String'
+           Set-Reg 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'TaskbarAnimations' 0
+       }
+       Undo = {
+           Set-Reg 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects' 'VisualFXSetting' 0
+           Set-ItemProperty 'HKCU:\Control Panel\Desktop' 'UserPreferencesMask' ([byte[]](0x9E,0x3E,0x07,0x80,0x12,0x00,0x00,0x00)) -Type Binary
+           Set-Reg 'HKCU:\Control Panel\Desktop\WindowMetrics' 'MinAnimate' '1' 'String'
+           Set-Reg 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'TaskbarAnimations' 1
+       } },
+
+    @{ Name = 'Disable CPU power throttling'; Risk = 'Low'
+       Desc = 'Windows stops throttling background-ish processes (helps game launchers, streaming, servers).'
+       Apply = { Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\Power\PowerThrottling' 'PowerThrottlingOff' 1 }
+       Undo  = { Remove-Prop 'HKLM:\SYSTEM\CurrentControlSet\Control\Power\PowerThrottling' @('PowerThrottlingOff') } },
+
+    @{ Name = 'CPU min state 100% + no core parking'; Risk = 'Medium'
+       Desc = 'Cores never park or downclock on AC power. Lower latency, more heat and power use.'
+       Apply = {
+           powercfg -setacvalueindex SCHEME_CURRENT SUB_PROCESSOR CPMINCORES 100
+           powercfg -setacvalueindex SCHEME_CURRENT SUB_PROCESSOR PROCTHROTTLEMIN 100
+           powercfg -setactive SCHEME_CURRENT
+       }
+       Undo = {
+           powercfg -setacvalueindex SCHEME_CURRENT SUB_PROCESSOR CPMINCORES 10
+           powercfg -setacvalueindex SCHEME_CURRENT SUB_PROCESSOR PROCTHROTTLEMIN 5
+           powercfg -setactive SCHEME_CURRENT
+       } },
+
+    @{ Name = 'Disable USB selective suspend + PCIe power saving'; Risk = 'Low'
+       Desc = 'Fixes mouse/headset dropouts and GPU link-state latency on AC power.'
+       Apply = {
+           powercfg -setacvalueindex SCHEME_CURRENT 2a737441-1930-4402-8d77-b2bebba308a3 48e6b7a6-50f5-4782-a5d4-53bb8f07e226 0
+           powercfg -setacvalueindex SCHEME_CURRENT SUB_PCIEXPRESS ASPM 0
+           powercfg -setactive SCHEME_CURRENT
+       }
+       Undo = {
+           powercfg -setacvalueindex SCHEME_CURRENT 2a737441-1930-4402-8d77-b2bebba308a3 48e6b7a6-50f5-4782-a5d4-53bb8f07e226 1
+           powercfg -setacvalueindex SCHEME_CURRENT SUB_PCIEXPRESS ASPM 1
+           powercfg -setactive SCHEME_CURRENT
+       } },
+
+    @{ Name = 'Gaming CPU scheduling priority'; Risk = 'Low'
+       Desc = 'SystemResponsiveness 0, High priority for the Games task, short foreground boost quanta.'
+       Apply = {
+           $mm = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile'
+           Set-Reg $mm 'SystemResponsiveness' 0
+           Set-Reg "$mm\Tasks\Games" 'GPU Priority' 8
+           Set-Reg "$mm\Tasks\Games" 'Priority' 6
+           Set-Reg "$mm\Tasks\Games" 'Scheduling Category' 'High' 'String'
+           Set-Reg "$mm\Tasks\Games" 'SFIO Priority' 'High' 'String'
+           Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\PriorityControl' 'Win32PrioritySeparation' 38
+       }
+       Undo = {
+           $mm = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile'
+           Set-Reg $mm 'SystemResponsiveness' 20
+           Set-Reg "$mm\Tasks\Games" 'Priority' 2
+           Set-Reg "$mm\Tasks\Games" 'Scheduling Category' 'Medium' 'String'
+           Set-Reg "$mm\Tasks\Games" 'SFIO Priority' 'Normal' 'String'
+           Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\PriorityControl' 'Win32PrioritySeparation' 2
+       } },
+
+    @{ Name = 'Network: no throttling + disable Nagle'; Risk = 'Low'
+       Desc = 'Removes the multimedia network throttle and TCP delay. Lower ping in online games.'
+       Apply = {
+           reg add 'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile' /v NetworkThrottlingIndex /t REG_DWORD /d 0xffffffff /f | Out-Null
+           Get-ChildItem 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces' | ForEach-Object {
+               Set-ItemProperty $_.PSPath 'TcpAckFrequency' 1 -Type DWord
+               Set-ItemProperty $_.PSPath 'TCPNoDelay' 1 -Type DWord
+           }
+       }
+       Undo = {
+           reg add 'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile' /v NetworkThrottlingIndex /t REG_DWORD /d 10 /f | Out-Null
+           Get-ChildItem 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces' | ForEach-Object {
+               Remove-Prop $_.PSPath @('TcpAckFrequency','TCPNoDelay')
+           }
+       } },
+
+    @{ Name = 'Hardware-accelerated GPU scheduling'; Risk = 'Low'
+       Desc = 'Turns on HAGS (needs a recent GPU + driver). Reboot required.'
+       Apply = { Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\GraphicsDrivers' 'HwSchMode' 2 }
+       Undo  = { Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\GraphicsDrivers' 'HwSchMode' 1 } },
+
+    @{ Name = 'Disable fullscreen optimizations'; Risk = 'Low'
+       Desc = 'True exclusive fullscreen behaviour for games that stutter in borderless mode.'
+       Apply = {
+           $p = 'HKCU:\System\GameConfigStore'
+           Set-Reg $p 'GameDVR_FSEBehaviorMode' 2; Set-Reg $p 'GameDVR_HonorUserFSEBehaviorMode' 1; Set-Reg $p 'GameDVR_DXGIHonorFSEWindowsCompatible' 1
+       }
+       Undo = {
+           $p = 'HKCU:\System\GameConfigStore'
+           Set-Reg $p 'GameDVR_FSEBehaviorMode' 0; Set-Reg $p 'GameDVR_HonorUserFSEBehaviorMode' 0; Set-Reg $p 'GameDVR_DXGIHonorFSEWindowsCompatible' 0
+       } },
+
+    @{ Name = 'Disable memory compression'; Risk = 'Medium'
+       Desc = 'Saves CPU cycles. Only worth it with 16GB+ RAM. Reboot required.'
+       Apply = { Disable-MMAgent -MemoryCompression }
+       Undo  = { Enable-MMAgent -MemoryCompression } },
+
+    @{ Name = 'NTFS: disable last-access time + 8.3 names'; Risk = 'Low'
+       Desc = 'Fewer disk writes on every file read. Very old 16-bit installers may complain.'
+       Apply = { fsutil behavior set disablelastaccess 1 | Out-Null; fsutil behavior set disable8dot3 1 | Out-Null }
+       Undo  = { fsutil behavior set disablelastaccess 2 | Out-Null; fsutil behavior set disable8dot3 2 | Out-Null } },
+
+    @{ Name = 'Disable reserved storage'; Risk = 'Low'
+       Desc = 'Frees ~7GB Windows keeps reserved for updates.'
+       Apply = { DISM /Online /Set-ReservedStorageState /State:Disabled | Out-Null }
+       Undo  = { DISM /Online /Set-ReservedStorageState /State:Enabled | Out-Null } },
+
+    @{ Name = 'Timer tweaks (disable dynamic tick)'; Risk = 'Medium'
+       Desc = 'Constant timer ticks for lower input latency. Uses a bit more idle power. Reboot required.'
+       Apply = { bcdedit /set disabledynamictick yes | Out-Null; bcdedit /deletevalue useplatformclock 2>&1 | Out-Null }
+       Undo  = { bcdedit /deletevalue disabledynamictick 2>&1 | Out-Null } },
+
+    @{ Name = 'Windows Update: notify only (no auto install/reboot)'; Risk = 'Medium'
+       Desc = 'Windows asks before downloading/installing. Remember to update manually for security patches.'
+       Apply = {
+           $p = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU'
+           Set-Reg $p 'AUOptions' 2; Set-Reg $p 'NoAutoRebootWithLoggedOnUsers' 1
+       }
+       Undo = { Remove-Prop 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU' @('AUOptions','NoAutoRebootWithLoggedOnUsers') } },
+
+    @{ Name = 'Disable Core Isolation / VBS (Memory Integrity)'; Risk = 'High'
+       Desc = 'Big FPS gain in CPU-bound games on some PCs. Turns OFF a major security feature. Reboot required. Undo turns it back on.'
+       Apply = {
+           Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity' 'Enabled' 0
+           Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\DeviceGuard' 'EnableVirtualizationBasedSecurity' 0
+       }
+       Undo = {
+           Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity' 'Enabled' 1
+           Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\DeviceGuard' 'EnableVirtualizationBasedSecurity' 1
+       } },
+
+    @{ Name = 'Disable Spectre/Meltdown mitigations'; Risk = 'High'
+       Desc = 'Gains a few % on older Intel CPUs (little on new ones). Leaves CPU side-channel holes open. Reboot required.'
+       Apply = {
+           $p = 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management'
+           Set-Reg $p 'FeatureSettingsOverride' 3; Set-Reg $p 'FeatureSettingsOverrideMask' 3
+       }
+       Undo = { Remove-Prop 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management' @('FeatureSettingsOverride','FeatureSettingsOverrideMask') } }
+)
+
 # ---------- apps (winget IDs) ----------
 $Apps = [ordered]@{
     'Brave'            = 'Brave.Brave'
@@ -203,6 +432,7 @@ $xaml = @'
     <StackPanel Grid.Column="0" Margin="0,0,12,0">
       <TextBlock Text="EduUtil" FontSize="26" FontWeight="Bold" Margin="0,0,0,18"/>
       <Button Name="navTweaks"  Content="Tweaks"  Margin="0,0,0,8" HorizontalContentAlignment="Left"/>
+      <Button Name="navExtreme" Content="Extreme"  Margin="0,0,0,8" HorizontalContentAlignment="Left" Background="#C0392B"/>
       <Button Name="navInstall" Content="Install"  Margin="0,0,0,8" HorizontalContentAlignment="Left"/>
       <Button Name="navClean"   Content="Cleanup" Margin="0,0,0,8" HorizontalContentAlignment="Left"/>
     </StackPanel>
@@ -221,6 +451,16 @@ $xaml = @'
             <Button Name="btnRP"    Content="Make restore point" Background="#444A55"/>
           </StackPanel>
           <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Name="tweakList"/></ScrollViewer>
+        </DockPanel>
+
+        <DockPanel Name="pgExtreme" Visibility="Collapsed">
+          <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Foreground="#FF8A5C" Margin="0,0,0,8"
+                     Text="Extreme tweaks. Yellow = medium trade-off, red = real security/compat risk. A restore point is made before applying."/>
+          <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,8">
+            <Button Name="btnXApply" Content="Apply selected" Background="#C0392B"/>
+            <Button Name="btnXUndo"  Content="Undo selected" Background="#444A55"/>
+          </StackPanel>
+          <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Name="extremeList"/></ScrollViewer>
         </DockPanel>
 
         <DockPanel Name="pgInstall" Visibility="Collapsed">
@@ -247,7 +487,7 @@ $xaml = @'
 '@
 
 $window = [Windows.Markup.XamlReader]::Parse($xaml)
-foreach ($n in 'navTweaks','navInstall','navClean','pgTweaks','pgInstall','pgClean','tweakList','appList',
+foreach ($n in 'navTweaks','navExtreme','navInstall','navClean','pgTweaks','pgExtreme','pgInstall','pgClean','tweakList','extremeList','appList','btnXApply','btnXUndo',
                'btnApply','btnUndo','btnRP','btnInstall','btnTemp','btnBin','btnDns','btnSfc','txtLog') {
     Set-Variable -Name $n -Value $window.FindName($n)
 }
@@ -262,6 +502,16 @@ foreach ($t in $Tweaks) {
     $desc.Margin = '24,-2,0,4'; $desc.TextWrapping = 'Wrap'
     [void]$tweakList.Children.Add($desc)
 }
+foreach ($t in $Extreme) {
+    $cb = New-Object Windows.Controls.CheckBox
+    $cb.Content = "$($t.Name)   [$($t.Risk)]"; $cb.ToolTip = $t.Desc; $cb.Tag = $t
+    if ($t.Risk -eq 'High') { $cb.Foreground = '#FF5C5C' } elseif ($t.Risk -eq 'Medium') { $cb.Foreground = '#FFC857' }
+    [void]$extremeList.Children.Add($cb)
+    $desc = New-Object Windows.Controls.TextBlock
+    $desc.Text = $t.Desc; $desc.Foreground = '#8A90A0'; $desc.FontSize = 11
+    $desc.Margin = '24,-2,0,4'; $desc.TextWrapping = 'Wrap'
+    [void]$extremeList.Children.Add($desc)
+}
 foreach ($k in $Apps.Keys) {
     $cb = New-Object Windows.Controls.CheckBox
     $cb.Content = $k; $cb.Tag = $Apps[$k]; $cb.Width = 200
@@ -269,17 +519,23 @@ foreach ($k in $Apps.Keys) {
 }
 
 function Show-Page($name) {
-    foreach ($p in 'pgTweaks','pgInstall','pgClean') {
+    foreach ($p in 'pgTweaks','pgExtreme','pgInstall','pgClean') {
         (Get-Variable $p).Value.Visibility = if ($p -eq $name) { 'Visible' } else { 'Collapsed' }
     }
 }
 $navTweaks.Add_Click({ Show-Page 'pgTweaks' })
+$navExtreme.Add_Click({ Show-Page 'pgExtreme' })
 $navInstall.Add_Click({ Show-Page 'pgInstall' })
 $navClean.Add_Click({ Show-Page 'pgClean' })
 
-function Run-Tweaks($mode) {
-    $picked = $tweakList.Children | Where-Object { $_ -is [Windows.Controls.CheckBox] -and $_.IsChecked }
+function Run-Tweaks($mode, $list) {
+    $picked = $list.Children | Where-Object { $_ -is [Windows.Controls.CheckBox] -and $_.IsChecked }
     if (-not $picked) { Log 'Nothing selected.'; return }
+    if ($list -eq $extremeList -and $mode -eq 'Apply') {
+        $names = ($picked | ForEach-Object { $_.Tag.Name }) -join "`n- "
+        $ans = [Windows.MessageBox]::Show("Apply these EXTREME tweaks?`n`n- $names`n`nA restore point will be created first.", 'EduUtil', 'YesNo', 'Warning')
+        if ($ans -ne 'Yes') { Log 'Cancelled.'; return }
+    }
     if ($mode -eq 'Apply') { New-SafeRestorePoint }
     foreach ($cb in $picked) {
         try {
@@ -290,8 +546,10 @@ function Run-Tweaks($mode) {
     Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue   # restarts automatically
     Log 'Done. Some tweaks need a reboot or sign-out.'
 }
-$btnApply.Add_Click({ Run-Tweaks 'Apply' })
-$btnUndo.Add_Click({ Run-Tweaks 'Undo' })
+$btnApply.Add_Click({ Run-Tweaks 'Apply' $tweakList })
+$btnXApply.Add_Click({ Run-Tweaks 'Apply' $extremeList })
+$btnXUndo.Add_Click({ Run-Tweaks 'Undo' $extremeList })
+$btnUndo.Add_Click({ Run-Tweaks 'Undo' $tweakList })
 $btnRP.Add_Click({ $script:rpDone = $false; New-SafeRestorePoint })
 
 $btnInstall.Add_Click({
