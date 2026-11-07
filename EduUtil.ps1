@@ -1,7 +1,7 @@
 # EduUtil - Windows tweak / install / cleanup toolbox
 # Run (admin or not, it self-elevates):
 #   irm "https://raw.githubusercontent.com/YOURUSER/EduUtil/main/EduUtil.ps1" | iex
-
+   $RepoUrl = 'https://raw.githubusercontent.com/of-Tester121/EduTool/main/EduUtil.ps1'
 $RepoUrl = 'https://raw.githubusercontent.com/YOURUSER/EduUtil/main/EduUtil.ps1'   # <- change this
 
 # ---------- self-elevate ----------
