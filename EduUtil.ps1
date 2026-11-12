@@ -1,12 +1,12 @@
 #requires -Version 5.1
 <#
 .SYNOPSIS
-    EduUtil - Windows Performance & Maintenance Utility 
+    EduUtil - Windows Performance & Maintenance Utility  (v3: animated loader, 150+ more tweaks, Toolbox, live monitor)
 
 #>
 
 $RepoUrl = 'https://raw.githubusercontent.com/of-Tester121/EduTool/main/EduUtil.ps1'
-$AppVersion = '2.0'
+$AppVersion = '3.0'
 
 # ---------- self-elevate ----------
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
@@ -21,6 +21,136 @@ if (-not $isAdmin) {
     return
 }
 
+
+# ======================================================================
+#  CONSOLE LOADING SCREEN (matrix rain -> logo shine -> live hardware scan)
+#  Skip it with:  $env:EDUUTIL_NOSPLASH = 1   (or press any key while it runs)
+# ======================================================================
+function Show-EduSplash {
+    if ($env:EDUUTIL_NOSPLASH) { return }
+    if ($Host.Name -ne 'ConsoleHost') { return }
+    $oldFg = [Console]::ForegroundColor; $oldTitle = $Host.UI.RawUI.WindowTitle
+    $script:splashSkip = $false
+    try {
+        $W = [Console]::WindowWidth; $H = [Console]::WindowHeight
+        if ($W -lt 64 -or $H -lt 22) { return }
+        [Console]::CursorVisible = $false
+        $Host.UI.RawUI.WindowTitle = 'EduUtil - starting...'
+        $full = [string][char]0x2588; $shade = [string][char]0x2591
+
+        function Sp-Put([int]$x, [int]$y, [string]$t, $c) {
+            if ($x -lt 0 -or $x -ge ($W - 1) -or $y -lt 0 -or $y -ge ($H - 1)) { return }
+            [Console]::SetCursorPosition($x, $y); [Console]::ForegroundColor = $c; [Console]::Write($t)
+        }
+        function Sp-Key { try { if ([Console]::KeyAvailable) { [void][Console]::ReadKey($true); $script:splashSkip = $true } } catch { } ; return $script:splashSkip }
+
+        # ---- phase 1: matrix rain ----
+        Clear-Host
+        $rnd = New-Object System.Random
+        $glyphs = '01#$%&*<>=+/\|abcdefXYZ'
+        $cols = [int](($W - 2) / 2)
+        $ys = New-Object 'int[]' $cols; $sp = New-Object 'int[]' $cols; $ln = New-Object 'int[]' $cols
+        for ($i = 0; $i -lt $cols; $i++) { $ys[$i] = -$rnd.Next(0, $H); $sp[$i] = $rnd.Next(1, 3); $ln[$i] = $rnd.Next(5, 12) }
+        for ($f = 0; $f -lt 34; $f++) {
+            for ($i = 0; $i -lt $cols; $i++) {
+                $x = $i * 2
+                $y = $ys[$i]
+                Sp-Put $x $y ($glyphs[$rnd.Next(0, $glyphs.Length)]) 'White'
+                Sp-Put $x ($y - 1) ($glyphs[$rnd.Next(0, $glyphs.Length)]) 'Green'
+                Sp-Put $x ($y - 3) ($glyphs[$rnd.Next(0, $glyphs.Length)]) 'DarkGreen'
+                Sp-Put $x ($y - $ln[$i]) ' ' 'Black'
+                $ys[$i] = $y + $sp[$i]
+            }
+            if (Sp-Key) { return }
+            Start-Sleep -Milliseconds 32
+        }
+        # wipe the rain away column by column
+        for ($i = 0; $i -lt $cols; $i++) {
+            for ($y = 0; $y -lt ($H - 1); $y++) { Sp-Put ($i * 2) $y ' ' 'Black' }
+            if (($i % 4) -eq 0) { Start-Sleep -Milliseconds 6 }
+        }
+        Clear-Host
+
+        # ---- phase 2: logo with shine sweep ----
+        $logo = @(
+        ' _____  ____   _   _  _   _  _____  ___  _     ',
+        '| ____||  _ \ | | | || | | ||_   _||_ _|| |    ',
+        '|  _|  | | | || | | || | | |  | |   | | | |    ',
+        '| |___ | |_| || |_| || |_| |  | |   | | | |___ ',
+        '|_____||____/  \___/  \___/   |_|  |___||_____|'
+        )
+        $lw = $logo[0].Length
+        $x0 = [int][math]::Max(0, ($W - $lw) / 2); $y0 = [int][math]::Max(1, ($H - 17) / 2)
+        for ($sweep = -6; $sweep -le ($lw + 6); $sweep += 2) {
+            for ($r = 0; $r -lt $logo.Count; $r++) {
+                $line = $logo[$r]
+                $a = [math]::Max(0, [math]::Min($lw, $sweep)); $b = [math]::Max(0, [math]::Min($lw, $sweep + 5))
+                [Console]::SetCursorPosition($x0, $y0 + $r)
+                [Console]::ForegroundColor = 'Cyan'; [Console]::Write($line.Substring(0, $a))
+                [Console]::ForegroundColor = 'White'; [Console]::Write($line.Substring($a, $b - $a))
+                [Console]::ForegroundColor = 'DarkCyan'; [Console]::Write($line.Substring($b))
+            }
+            if (Sp-Key) { return }
+            Start-Sleep -Milliseconds 22
+        }
+        for ($r = 0; $r -lt $logo.Count; $r++) { Sp-Put $x0 ($y0 + $r) $logo[$r] 'Cyan' }
+
+        $sub = "W I N D O W S   P E R F O R M A N C E   &   M A I N T E N A N C E   v$AppVersion"
+        $sx = [int][math]::Max(0, ($W - $sub.Length) / 2)
+        for ($i = 0; $i -lt $sub.Length; $i++) { Sp-Put ($sx + $i) ($y0 + 6) ([string]$sub[$i]) 'Gray'; Start-Sleep -Milliseconds 8 }
+        $bar = ([string][char]0x2500) * [math]::Min($lw, $W - 4)
+        Sp-Put $x0 ($y0 + 7) $bar 'DarkGray'
+
+        # ---- phase 3: boot steps (real work) with spinner + progress bar ----
+        $steps = @(
+            @{ L = 'Verifying administrator session'; A = { 'elevated' } },
+            @{ L = 'Loading WPF framework';          A = { Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, System.Windows.Forms; 'ready' } },
+            @{ L = 'Reading Windows build';          A = { $o = Get-CimInstance Win32_OperatingSystem; "$($o.Caption) (build $($o.BuildNumber))" } },
+            @{ L = 'Detecting processor';            A = { $c = Get-CimInstance Win32_Processor | Select-Object -First 1; "$($c.Name.Trim()) - $($c.NumberOfCores)C/$($c.NumberOfLogicalProcessors)T" } },
+            @{ L = 'Detecting graphics card';        A = { $g = @(Get-CimInstance Win32_VideoController | Where-Object { $_.Name }); if ($g.Count) { ($g | Select-Object -First 2 | ForEach-Object { $_.Name }) -join ' + ' } else { 'none found' } } },
+            @{ L = 'Measuring memory';               A = { $m = Get-CimInstance Win32_ComputerSystem; "$([math]::Round($m.TotalPhysicalMemory / 1GB, 1)) GB RAM" } },
+            @{ L = 'Scanning storage';               A = { $d = @(Get-CimInstance Win32_DiskDrive | Select-Object -First 2); ($d | ForEach-Object { "$($_.Model.Trim()) ($([math]::Round($_.Size / 1GB)) GB)" }) -join ', ' } },
+            @{ L = 'Preparing backup and log folders'; A = { 'ok' } },
+            @{ L = 'Arming tweak engine';            A = { 'ok' } }
+        )
+        $spin = '|', '/', '-', '\'
+        $barW = [math]::Min(46, $W - 12); $barX = [int][math]::Max(0, ($W - $barW - 8) / 2); $barY = $y0 + 8 + $steps.Count + 2
+        $rowY = $y0 + 9
+        for ($s = 0; $s -lt $steps.Count; $s++) {
+            $y = $rowY + $s
+            for ($k = 0; $k -lt 7; $k++) {
+                Sp-Put $x0 $y ("[ " + $spin[$k % 4] + " ] " + $steps[$s].L + "...") 'Yellow'
+                Start-Sleep -Milliseconds 40
+            }
+            $res = ''
+            try { $res = [string](& $steps[$s].A) } catch { $res = 'skipped' }
+            $maxRes = $W - $x0 - $steps[$s].L.Length - 12
+            if ($res.Length -gt $maxRes -and $maxRes -gt 4) { $res = $res.Substring(0, $maxRes - 3) + '...' }
+            Sp-Put $x0 $y (' ' * ($W - $x0 - 2)) 'Black'
+            Sp-Put $x0 $y '[ ' 'DarkGray'; Sp-Put ($x0 + 2) $y 'OK' 'Green'; Sp-Put ($x0 + 4) $y ' ] ' 'DarkGray'
+            Sp-Put ($x0 + 7) $y $steps[$s].L 'Gray'
+            Sp-Put ($x0 + 8 + $steps[$s].L.Length) $y $res 'DarkCyan'
+            $pct = [int](100 * ($s + 1) / $steps.Count); $fill = [int]($barW * $pct / 100)
+            Sp-Put $barX $barY ('[' + ($full * $fill) + ($shade * ($barW - $fill)) + '] ' + $pct.ToString().PadLeft(3) + '%') 'Cyan'
+            if (Sp-Key) { return }
+        }
+        # finale: flash the bar and announce
+        $msg = 'ALL SYSTEMS GO  -  LAUNCHING EDUUTIL'
+        for ($f = 0; $f -lt 6; $f++) {
+            $c = if ($f % 2) { 'Cyan' } else { 'White' }
+            Sp-Put $barX $barY ('[' + ($full * $barW) + '] 100%') $c
+            Sp-Put ([int][math]::Max(0, ($W - $msg.Length) / 2)) ($barY + 2) $msg $c
+            Start-Sleep -Milliseconds 90
+        }
+        Start-Sleep -Milliseconds 250
+    } catch { }
+    finally {
+        try { [Console]::ForegroundColor = $oldFg; [Console]::CursorVisible = $true; Clear-Host; $Host.UI.RawUI.WindowTitle = $oldTitle } catch { }
+    }
+}
+
+Show-EduSplash
+Write-Host "EduUtil v$AppVersion is running. Keep this window open - closing it closes EduUtil." -ForegroundColor Cyan
 Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, System.Windows.Forms
 
 # ---------- data folder / logging ----------
@@ -342,6 +472,88 @@ $CDM  = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager'
 $ADV  = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced'
 $EDGE = 'HKLM:\SOFTWARE\Policies\Microsoft\Edge'
 $WSP  = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search'
+
+# ---------- extra helpers used by the v3 tweak packs ----------
+$NOTIF  = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings'
+$EXPL   = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer'
+$POLW   = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows'
+$WUPOL  = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate'
+$SHBLK  = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Blocked'
+$CRASH  = 'HKLM:\SYSTEM\CurrentControlSet\Control\CrashControl'
+$MEMMGR = 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management'
+$DESKI  = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\HideDesktopIcons\NewStartPanel'
+
+# HKLM shell-verb helpers (context menu entries) - uses the .NET registry API so '*' keys work
+function Set-ShellVerb([string]$SubKey, [string]$Label, [string]$Command, [string]$Icon = '') {
+    $k = [Microsoft.Win32.Registry]::LocalMachine.CreateSubKey($SubKey)
+    try {
+        $k.SetValue('', $Label)
+        if ($Icon) { $k.SetValue('Icon', $Icon) }
+        $c = $k.CreateSubKey('command')
+        try { $c.SetValue('', $Command) } finally { $c.Close() }
+    } finally { $k.Close() }
+}
+function Set-HklmDefault([string]$SubKey, [string]$Value) {
+    $k = [Microsoft.Win32.Registry]::LocalMachine.CreateSubKey($SubKey)
+    try { $k.SetValue('', $Value) } finally { $k.Close() }
+}
+function Remove-HklmKey([string]$SubKey) {
+    try { [Microsoft.Win32.Registry]::LocalMachine.DeleteSubKeyTree($SubKey, $false) } catch { }
+}
+function Test-HklmKey([string]$SubKey) {
+    $k = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey($SubKey)
+    if ($k) { $k.Close(); return $true }
+    return $false
+}
+
+# hosts-file telemetry block (clearly marked so it can be removed exactly)
+$HostsFile  = Join-Path $env:WINDIR 'System32\drivers\etc\hosts'
+$HostsBegin = '# >>> EduUtil telemetry block (begin)'
+$HostsEnd   = '# <<< EduUtil telemetry block (end)'
+$TelemetryHosts = @(
+    'vortex.data.microsoft.com','vortex-win.data.microsoft.com','telemetry.microsoft.com','watson.telemetry.microsoft.com',
+    'oca.telemetry.microsoft.com','sqm.telemetry.microsoft.com','telecommand.telemetry.microsoft.com','df.telemetry.microsoft.com',
+    'reports.wes.df.telemetry.microsoft.com','services.wes.df.telemetry.microsoft.com','sqm.df.telemetry.microsoft.com',
+    'telemetry.urs.microsoft.com','survey.watson.microsoft.com','watson.microsoft.com','statsfe2.ws.microsoft.com',
+    'diagnostics.support.microsoft.com','oca.microsoft.com','kmwatsonc.events.data.microsoft.com','choice.microsoft.com',
+    'redir.metaservices.microsoft.com','compatexchange.cloudapp.net'
+)
+function Get-HostsLines {
+    if (Test-Path -LiteralPath $HostsFile) { return @(Get-Content -LiteralPath $HostsFile -ErrorAction Stop) }
+    return @()
+}
+function Remove-HostsBlock {
+    $lines = Get-HostsLines
+    $out = New-Object System.Collections.Generic.List[string]
+    $skip = $false
+    foreach ($l in $lines) {
+        if ($l -eq $HostsBegin) { $skip = $true; continue }
+        if ($l -eq $HostsEnd)   { $skip = $false; continue }
+        if (-not $skip) { $out.Add($l) }
+    }
+    Set-Content -LiteralPath $HostsFile -Value $out -Encoding ASCII -ErrorAction Stop
+}
+function Set-HostsBlock([string[]]$Domains) {
+    Remove-HostsBlock
+    $add = @($HostsBegin) + @($Domains | ForEach-Object { "0.0.0.0 $_" }) + @($HostsEnd)
+    Add-Content -LiteralPath $HostsFile -Value $add -Encoding ASCII -ErrorAction Stop
+    ipconfig /flushdns | Out-Null
+}
+function Test-HostsBlock { return (@(Get-HostsLines) -contains $HostsBegin) }
+
+# NetBIOS over TCP/IP (per adapter) - 2 = disabled, 0 = default (DHCP decides)
+$NetbtKey = 'HKLM:\SYSTEM\CurrentControlSet\Services\NetBT\Parameters\Interfaces'
+function Set-NetbiosAll([int]$mode) {
+    foreach ($k in (Get-ChildItem -LiteralPath $NetbtKey -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -like 'Tcpip_*' })) {
+        Set-Reg $k.PSPath 'NetbiosOptions' $mode 'DWord'
+    }
+}
+function Test-NetbiosOff {
+    $ks = @(Get-ChildItem -LiteralPath $NetbtKey -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -like 'Tcpip_*' })
+    if ($ks.Count -eq 0) { return $null }
+    foreach ($k in $ks) { if ((Get-RegValue $k.PSPath 'NetbiosOptions') -ne 2) { return $false } }
+    return $true
+}
 
 $Tweaks = @(
     # ---------------- Privacy ----------------
@@ -770,6 +982,328 @@ $Tweaks = @(
        Reg  = @( (RegV 'HKLM:\SYSTEM\CurrentControlSet\Control\Remote Assistance' 'fAllowToGetHelp' 0 'DWord' 1) ) }
 )
 
+
+# ======================================================================
+#  EVERYDAY TWEAKS - PACK 2 (v3)
+# ======================================================================
+$Tweaks += @(
+    # ---------------- Privacy (more) ----------------
+    @{ Name = 'Disable Customer Experience Improvement Program (CEIP)'; Category = 'Privacy'; Preset = @('Recommended','Privacy')
+       Desc = 'Opts the PC out of the Windows CEIP usage-statistics program.'
+       Reg  = @( (RegV 'HKLM:\SOFTWARE\Policies\Microsoft\SQMClient\Windows' 'CEIPEnable' 0) ) },
+
+    @{ Name = 'Disable application compatibility telemetry'; Category = 'Privacy'; Preset = @('Recommended','Privacy')
+       Desc = 'Turns off the inventory collector, Steps Recorder and application-impact telemetry.'
+       Reg  = @( (RegV "$POLW\AppCompat" 'DisableInventory' 1), (RegV "$POLW\AppCompat" 'DisableUAR' 1), (RegV "$POLW\AppCompat" 'AITEnable' 0) ) },
+
+    @{ Name = 'Disable handwriting data sharing'; Category = 'Privacy'; Preset = @('Privacy')
+       Desc = 'Stops handwriting samples and handwriting error reports being sent to Microsoft.'
+       Reg  = @( (RegV "$POLW\TabletPC" 'PreventHandwritingDataSharing' 1), (RegV "$POLW\HandwritingErrorReports" 'PreventHandwritingErrorReports' 1) ) },
+
+    @{ Name = 'Disable Windows settings sync'; Category = 'Privacy'; Preset = @('Privacy')
+       Desc = 'Themes, passwords, language and other settings are no longer synced through your Microsoft account.'
+       Reg  = @( (RegV "$POLW\SettingSync" 'DisableSettingSync' 2), (RegV "$POLW\SettingSync" 'DisableSettingSyncUserOverride' 1) ) },
+
+    @{ Name = 'Disable shared experiences / Nearby sharing'; Category = 'Privacy'; Preset = @('Privacy')
+       Desc = 'Turns off "Continue on another device" and nearby sharing (Cross Device Platform).'
+       Reg  = @( (RegV "$POLW\System" 'EnableCdp' 0),
+                 (RegV 'HKCU:\Software\Microsoft\Windows\CurrentVersion\CDP' 'CdpSessionUserAuthzPolicy' 0 'DWord' 1),
+                 (RegV 'HKCU:\Software\Microsoft\Windows\CurrentVersion\CDP' 'NearShareChannelUserAuthzPolicy' 0 'DWord' 1),
+                 (RegV 'HKCU:\Software\Microsoft\Windows\CurrentVersion\CDP' 'RomeSdkChannelUserAuthzPolicy' 0 'DWord' 1) ) },
+
+    @{ Name = 'Disable Find My Device location reporting'; Category = 'Privacy'; Preset = @('Privacy')
+       Desc = 'The PC stops reporting its location to Microsoft. You can no longer locate a lost or stolen device through your account.'
+       Reg  = @( (RegV 'HKLM:\SOFTWARE\Policies\Microsoft\FindMyDevice' 'AllowFindMyDevice' 0) ) },
+
+    @{ Name = 'Disable clipboard history'; Category = 'Privacy'; Preset = @('Privacy')
+       Desc = 'Win+V clipboard history is turned off, so copied items are not kept in memory.'
+       Reg  = @( (RegV "$POLW\System" 'AllowClipboardHistory' 0) ) },
+
+    @{ Name = 'Disable Windows Insider / preview builds'; Category = 'Privacy'; Preset = @('Privacy')
+       Desc = 'Blocks preview-build enrollment and hides the Insider page in Settings.'
+       Reg  = @( (RegV "$POLW\PreviewBuilds" 'AllowBuildPreview' 0), (RegV 'HKLM:\SOFTWARE\Microsoft\WindowsSelfHost\UI\Visibility' 'HideInsiderPage' 1) ) },
+
+    @{ Name = 'Defender: never send file samples to Microsoft'; Category = 'Privacy'; Preset = @('Privacy')
+       Desc = 'Defender keeps protecting you but no longer uploads suspicious files for analysis (cloud lookups of hashes still work).'
+       Apply = { Set-MpPreference -SubmitSamplesConsent NeverSend -ErrorAction Stop }
+       Undo  = { Set-MpPreference -SubmitSamplesConsent SendSafeSamples -ErrorAction SilentlyContinue }
+       Test  = { (Get-MpPreference -ErrorAction Stop).SubmitSamplesConsent -eq 2 } },
+
+    @{ Name = 'Disable SmartScreen web check for Store apps'; Category = 'Privacy'; Preset = @('Privacy')
+       Desc = 'Store apps stop sending the web addresses they load to SmartScreen.'
+       Reg  = @( (RegV 'HKCU:\Software\Microsoft\Windows\CurrentVersion\AppHost' 'EnableWebContentEvaluation' 0 'DWord' 1) ) },
+
+    @{ Name = 'Chrome: stop metrics, feedback and background mode'; Category = 'Privacy'; Preset = @('Privacy')
+       Desc = 'Applies Chrome policies: no usage statistics, no feedback prompts, no running in the background after you close it.'
+       Reg  = @( (RegV 'HKLM:\SOFTWARE\Policies\Google\Chrome' 'MetricsReportingEnabled' 0), (RegV 'HKLM:\SOFTWARE\Policies\Google\Chrome' 'UrlKeyedAnonymizedDataCollectionEnabled' 0),
+                 (RegV 'HKLM:\SOFTWARE\Policies\Google\Chrome' 'UserFeedbackAllowed' 0), (RegV 'HKLM:\SOFTWARE\Policies\Google\Chrome' 'BackgroundModeEnabled' 0),
+                 (RegV 'HKLM:\SOFTWARE\Policies\Google\Chrome' 'SafeBrowsingExtendedReportingEnabled' 0) ) },
+
+    @{ Name = 'Firefox: disable telemetry, studies and Pocket'; Category = 'Privacy'; Preset = @('Privacy')
+       Desc = 'Applies Firefox enterprise policies that switch off telemetry, Shield studies and Pocket.'
+       Reg  = @( (RegV 'HKLM:\SOFTWARE\Policies\Mozilla\Firefox' 'DisableTelemetry' 1), (RegV 'HKLM:\SOFTWARE\Policies\Mozilla\Firefox' 'DisableFirefoxStudies' 1),
+                 (RegV 'HKLM:\SOFTWARE\Policies\Mozilla\Firefox' 'DisablePocket' 1) ) },
+
+    @{ Name = 'Brave: disable Rewards, Wallet, VPN and AI chat'; Category = 'Privacy'; Preset = @('Privacy')
+       Desc = 'Hides the promotional crypto/VPN/AI features in Brave via policy.'
+       Reg  = @( (RegV 'HKLM:\SOFTWARE\Policies\BraveSoftware\Brave' 'BraveRewardsDisabled' 1), (RegV 'HKLM:\SOFTWARE\Policies\BraveSoftware\Brave' 'BraveWalletDisabled' 1),
+                 (RegV 'HKLM:\SOFTWARE\Policies\BraveSoftware\Brave' 'BraveVPNDisabled' 1), (RegV 'HKLM:\SOFTWARE\Policies\BraveSoftware\Brave' 'BraveAIChatEnabled' 0) ) },
+
+    @{ Name = 'Disable Click to Do / AI shortcuts (Windows 11 24H2+)'; Category = 'Privacy'; Preset = @('Privacy')
+       Desc = 'Turns off the Click to Do screen-analysis overlay. No effect on older builds.'
+       Reg  = @( (RegV "$POLW\WindowsAI" 'DisableClickToDo' 1) ) },
+
+    # ---------------- Ads & suggestions (more) ----------------
+    @{ Name = 'Disable cloud-optimized content'; Category = 'Ads & suggestions'; Preset = @('Recommended','Privacy')
+       Desc = 'Stops Windows pulling promotional and "optimized" content from the cloud into Start and Settings.'
+       Reg  = @( (RegV "$POLW\CloudContent" 'DisableCloudOptimizedContent' 1), (RegV "$POLW\CloudContent" 'DisableConsumerAccountStateContent' 1) ) },
+
+    @{ Name = 'Disable Windows Spotlight features'; Category = 'Ads & suggestions'; Preset = @('Recommended')
+       Desc = 'Turns off Spotlight on the desktop, lock screen and Settings, third-party suggestions and the "Learn about this picture" desktop icon.'
+       Reg  = @( (RegV 'HKCU:\Software\Policies\Microsoft\Windows\CloudContent' 'DisableWindowsSpotlightFeatures' 1),
+                 (RegV 'HKCU:\Software\Policies\Microsoft\Windows\CloudContent' 'DisableWindowsSpotlightOnActionCenter' 1),
+                 (RegV 'HKCU:\Software\Policies\Microsoft\Windows\CloudContent' 'DisableWindowsSpotlightOnSettings' 1),
+                 (RegV 'HKCU:\Software\Policies\Microsoft\Windows\CloudContent' 'DisableWindowsSpotlightWindowsWelcomeExperience' 1),
+                 (RegV 'HKCU:\Software\Policies\Microsoft\Windows\CloudContent' 'DisableThirdPartySuggestions' 1),
+                 (RegV 'HKCU:\Software\Policies\Microsoft\Windows\CloudContent' 'DisableSpotlightCollectionOnDesktop' 1),
+                 (RegV $DESKI '{2cc5ca98-6485-489a-920e-b3e88a6ccce3}' 1) ); Explorer = $true },
+
+    @{ Name = 'Edge: clean new-tab page, no Collections, send Do Not Track'; Category = 'Ads & suggestions'; Preset = @('Privacy')
+       Desc = 'Removes the MSN news feed from the new-tab page and the Collections feature, and sends the Do Not Track header.'
+       Reg  = @( (RegV $EDGE 'NewTabPageContentEnabled' 0), (RegV $EDGE 'EdgeCollectionsEnabled' 0), (RegV $EDGE 'ConfigureDoNotTrack' 1) ) },
+
+    @{ Name = 'Hide "Recently added" apps in Start'; Category = 'Ads & suggestions'; Preset = @()
+       Desc = 'Start stops listing newly installed apps at the top of the app list.'
+       Reg  = @( (RegV 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Explorer' 'HideRecentlyAddedApps' 1) ); Explorer = $true },
+
+    # ---------------- Explorer & taskbar (more) ----------------
+    @{ Name = 'Show This PC, User Files, Network and Control Panel on desktop'; Category = 'Explorer & taskbar'; Preset = @()
+       Desc = 'Adds the classic desktop icons back.'
+       Reg  = @( (RegV $DESKI '{20D04FE0-3AEA-1069-A2D8-08002B30309D}' 0 'DWord' 1), (RegV $DESKI '{59031a47-3f72-44a7-89c5-5595fe6b30ee}' 0 'DWord' 1),
+                 (RegV $DESKI '{F02C1A0D-BE21-4350-88B0-7367FC96EF3C}' 0 'DWord' 1), (RegV $DESKI '{5399E694-6CE5-4D6C-8FCE-1D8870FDCBA0}' 0 'DWord' 1) ); Explorer = $true },
+
+    @{ Name = 'Never combine taskbar buttons'; Category = 'Explorer & taskbar'; Preset = @()
+       Desc = 'Every window gets its own taskbar button with a label (also on secondary monitors).'
+       Reg  = @( (RegV $ADV 'TaskbarGlomLevel' 2 'DWord' 0), (RegV $ADV 'MMTaskbarGlomLevel' 2 'DWord' 0) ); Explorer = $true },
+
+    @{ Name = 'Show all tray icons (Windows 10)'; Category = 'Explorer & taskbar'; Preset = @()
+       Desc = 'Stops Windows hiding tray icons behind the arrow.'
+       Reg  = @( (RegV $EXPL 'EnableAutoTray' 0 'DWord' 1) ); Explorer = $true },
+
+    @{ Name = 'Compact spacing in File Explorer (Windows 11)'; Category = 'Explorer & taskbar'; Preset = @()
+       Desc = 'Reduces the padding between items like Windows 10 did, fitting more files on screen.'
+       Reg  = @( (RegV $ADV 'UseCompactMode' 1 'DWord' 0) ); Explorer = $true },
+
+    @{ Name = 'Disable Snap layouts flyout (Windows 11)'; Category = 'Explorer & taskbar'; Preset = @()
+       Desc = 'Removes the layout picker that pops up when hovering the maximize button and the snap bar when dragging.'
+       Reg  = @( (RegV $ADV 'EnableSnapAssistFlyout' 0 'DWord' 1), (RegV $ADV 'EnableSnapBar' 0 'DWord' 1) ); Explorer = $true },
+
+    @{ Name = 'Start menu: show more pins (Windows 11)'; Category = 'Explorer & taskbar'; Preset = @()
+       Desc = 'Gives pinned apps more room and shrinks the Recommended area.'
+       Reg  = @( (RegV $ADV 'Start_Layout' 1 'DWord' 0) ); Explorer = $true },
+
+    @{ Name = 'Hide OneDrive from the Explorer sidebar'; Category = 'Explorer & taskbar'; Preset = @()
+       Desc = 'Removes the OneDrive entry from the navigation pane (files and sync are not touched).'
+       Reg  = @( (RegV 'HKLM:\SOFTWARE\Classes\CLSID\{018D5C66-4533-4307-9B53-224DE2ED1FE6}' 'System.IsPinnedToNameSpaceTree' 0 'DWord' 1),
+                 (RegV 'HKLM:\SOFTWARE\Classes\Wow6432Node\CLSID\{018D5C66-4533-4307-9B53-224DE2ED1FE6}' 'System.IsPinnedToNameSpaceTree' 0 'DWord' 1) ); Explorer = $true },
+
+    @{ Name = 'Show item check boxes in Explorer'; Category = 'Explorer & taskbar'; Preset = @()
+       Desc = 'Adds a tick box to every file so you can multi-select with the mouse only.'
+       Reg  = @( (RegV $ADV 'AutoCheckSelect' 1 'DWord' 0) ); Explorer = $true },
+
+    @{ Name = 'Navigation pane: expand to current folder'; Category = 'Explorer & taskbar'; Preset = @()
+       Desc = 'The sidebar follows the folder you are in and always shows every drive and folder.'
+       Reg  = @( (RegV $ADV 'NavPaneExpandToCurrentFolder' 1 'DWord' 0), (RegV $ADV 'NavPaneShowAllFolders' 1 'DWord' 0) ); Explorer = $true },
+
+    @{ Name = 'Show accent color on title bars and borders'; Category = 'Explorer & taskbar'; Preset = @()
+       Desc = 'Window title bars use your accent color instead of plain white/black.'
+       Reg  = @( (RegV 'HKCU:\Software\Microsoft\Windows\DWM' 'ColorPrevalence' 1 'DWord' 0) ) },
+
+    # ---------------- Sign-in & lock screen ----------------
+    @{ Name = 'Skip the lock screen'; Category = 'Sign-in & lock screen'; Preset = @()
+       Desc = 'Goes straight to the password / PIN box. Works on Pro, Enterprise and Education editions.'
+       Reg  = @( (RegV "$POLW\Personalization" 'NoLockScreen' 1) ) },
+
+    @{ Name = 'Disable sign-in screen blur'; Category = 'Sign-in & lock screen'; Preset = @('Recommended')
+       Desc = 'Shows the sign-in background sharp instead of acrylic-blurred (saves a little GPU work).'
+       Reg  = @( (RegV "$POLW\System" 'DisableAcrylicBackgroundOnLogon' 1) ) },
+
+    @{ Name = 'Disable lock-screen camera'; Category = 'Sign-in & lock screen'; Preset = @()
+       Desc = 'Removes the swipe-down camera shortcut from the lock screen.'
+       Reg  = @( (RegV "$POLW\Personalization" 'NoLockScreenCamera' 1) ) },
+
+    @{ Name = 'Hide notifications on the lock screen'; Category = 'Sign-in & lock screen'; Preset = @('Privacy')
+       Desc = 'Toasts no longer appear above the lock screen, so nobody walking past can read them.'
+       Reg  = @( (RegV $NOTIF 'NOC_GLOBAL_SETTING_ALLOW_TOASTS_ABOVE_LOCK' 0 'DWord' 1), (RegV $NOTIF 'NOC_GLOBAL_SETTING_ALLOW_CRITICAL_TOASTS_ABOVE_LOCK' 0 'DWord' 1) ) },
+
+    # ---------------- Notifications & sound ----------------
+    @{ Name = 'Disable the Windows startup sound'; Category = 'Notifications & sound'; Preset = @()
+       Desc = 'Silences the boot chime.'
+       Reg  = @( (RegV 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\LogonUI\BootAnimation' 'DisableStartupSound' 1 'DWord' 0),
+                 (RegV 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' 'DisableStartupSound' 1) ) },
+
+    @{ Name = 'Disable notification sounds'; Category = 'Notifications & sound'; Preset = @()
+       Desc = 'Toast notifications still appear but stop making a sound.'
+       Reg  = @( (RegV $NOTIF 'NOC_GLOBAL_SETTING_ALLOW_NOTIFICATION_SOUND' 0 'DWord' 1) ) },
+
+    @{ Name = 'Stop Windows lowering volume during calls'; Category = 'Notifications & sound'; Preset = @('Gaming')
+       Desc = 'Sets communications activity to "Do nothing" so voice chat does not duck your game audio.'
+       Reg  = @( (RegV 'HKCU:\Software\Microsoft\Multimedia\Audio' 'UserDuckingPreference' 3 'DWord' 1) ) },
+
+    @{ Name = 'Turn off all toast notifications and Action Center'; Category = 'Notifications & sound'; Preset = @()
+       Desc = 'No pop-up notifications from any app and the notification center is disabled.'
+       Reg  = @( (RegV 'HKCU:\Software\Policies\Microsoft\Windows\CurrentVersion\PushNotifications' 'NoToastApplicationNotification' 1),
+                 (RegV 'HKCU:\Software\Policies\Microsoft\Windows\Explorer' 'DisableNotificationCenter' 1) ); Explorer = $true },
+
+    @{ Name = 'Silence non-critical Windows Security notifications'; Category = 'Notifications & sound'; Preset = @('Recommended')
+       Desc = 'Hides the summary and recommendation pop-ups from Windows Security. Threat alerts still show.'
+       Reg  = @( (RegV 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender Security Center\Notifications' 'DisableEnhancedNotifications' 1) ) },
+
+    # ---------------- Gaming & input (more) ----------------
+    @{ Name = 'Disable touch and pen visual feedback'; Category = 'Gaming & input'; Preset = @('Gaming')
+       Desc = 'Removes the circle/ripple drawn under touches and pen taps.'
+       Reg  = @( (RegV 'HKCU:\Control Panel\Cursors' 'ContactVisualization' 0 'DWord' 1), (RegV 'HKCU:\Control Panel\Cursors' 'GestureVisualization' 0 'DWord' 31) ) },
+
+    @{ Name = 'Disable accessibility hotkeys (High Contrast, Narrator)'; Category = 'Gaming & input'; Preset = @('Gaming')
+       Desc = 'Stops Left Alt + Left Shift + Print Screen and Win+Ctrl+Enter from popping up in the middle of a game.'
+       Reg  = @( (RegV 'HKCU:\Control Panel\Accessibility\HighContrast' 'Flags' '4194' 'String' '126'),
+                 (RegV 'HKCU:\Software\Microsoft\Narrator\NoRoam' 'WinEnterLaunchEnabled' 0 'DWord' 1) ) },
+
+    @{ Name = 'Faster hover previews'; Category = 'Gaming & input'; Preset = @()
+       Desc = 'Taskbar thumbnails and tooltips appear after 10 ms instead of 400 ms.'
+       Reg  = @( (RegV 'HKCU:\Control Panel\Mouse' 'MouseHoverTime' '10' 'String' '400') ) },
+
+    # ---------------- Quality of life ----------------
+    @{ Name = 'Turn NumLock on at startup'; Category = 'Quality of life'; Preset = @()
+       Desc = 'NumLock is on at the sign-in screen and after you sign in.'
+       Reg  = @( (RegV 'HKCU:\Control Panel\Keyboard' 'InitialKeyboardIndicators' '2' 'String' '0'),
+                 (RegV 'Registry::HKEY_USERS\.DEFAULT\Control Panel\Keyboard' 'InitialKeyboardIndicators' '2' 'String' '0') ) },
+
+    @{ Name = 'Remove "- Shortcut" from new shortcut names'; Category = 'Quality of life'; Preset = @()
+       Desc = 'New shortcuts are named like the original instead of "App - Shortcut".'
+       Reg  = @( (RegV $EXPL 'link' ([byte[]](0,0,0,0)) 'Binary') ) },
+
+    # ---------------- Windows Update ----------------
+    @{ Name = 'Never auto-restart while you are signed in'; Category = 'Windows Update'; Preset = @('Recommended','Gaming')
+       Desc = 'Windows installs updates but waits for you to restart instead of rebooting in the middle of your work or game.'
+       Reg  = @( (RegV "$WUPOL\AU" 'NoAutoRebootWithLoggedOnUsers' 1) ) },
+
+    @{ Name = 'Delay feature updates by one year'; Category = 'Windows Update'; Preset = @()
+       Desc = 'Big Windows version upgrades wait 365 days (Pro/Enterprise/Education). Security patches still install.'
+       Reg  = @( (RegV $WUPOL 'DeferFeatureUpdates' 1), (RegV $WUPOL 'DeferFeatureUpdatesPeriodInDays' 365) ) },
+
+    @{ Name = 'Delay monthly quality updates by 7 days'; Category = 'Windows Update'; Preset = @()
+       Desc = 'Gives Microsoft a week to pull a bad patch before it reaches you.'
+       Reg  = @( (RegV $WUPOL 'DeferQualityUpdates' 1), (RegV $WUPOL 'DeferQualityUpdatesPeriodInDays' 7) ) },
+
+    @{ Name = 'Stop Malicious Software Removal Tool via Windows Update'; Category = 'Windows Update'; Preset = @()
+       Desc = 'Skips the monthly MSRT download. Defender still scans normally.'
+       Reg  = @( (RegV 'HKLM:\SOFTWARE\Policies\Microsoft\MRT' 'DontOfferThroughWUAU' 1) ) },
+
+    # ---------------- Developer (more) ----------------
+    @{ Name = 'Do not auto-restart after a crash (BSOD)'; Category = 'Developer'; Preset = @('Developer')
+       Desc = 'The blue screen stays on screen so you can read the stop code.'
+       Reg  = @( (RegV $CRASH 'AutoReboot' 0 'DWord' 1) ) },
+
+    @{ Name = 'Show technical details on the blue screen'; Category = 'Developer'; Preset = @('Developer')
+       Desc = 'Adds the stop code parameters and the failing driver name to the BSOD.'
+       Reg  = @( (RegV $CRASH 'DisplayParameters' 1) ) },
+
+    @{ Name = 'Enable ANSI colors in the classic console'; Category = 'Developer'; Preset = @('Developer')
+       Desc = 'Turns on virtual-terminal sequences for cmd and PowerShell windows (colored output from git, npm, etc.).'
+       Reg  = @( (RegV 'HKCU:\Console' 'VirtualTerminalLevel' 1 'DWord' 0) ) },
+
+    # ---------------- Security (more) ----------------
+    @{ Name = 'Disable PowerShell 2.0 engine'; Category = 'Security'; Preset = @('Recommended')
+       Desc = 'Removes the legacy engine that attackers use to dodge logging and AMSI. Nothing modern needs it.'
+       Apply = { Disable-WindowsOptionalFeature -Online -FeatureName MicrosoftWindowsPowerShellV2Root -NoRestart -ErrorAction Stop | Out-Null }
+       Undo  = { Enable-WindowsOptionalFeature -Online -FeatureName MicrosoftWindowsPowerShellV2Root -NoRestart -All -ErrorAction SilentlyContinue | Out-Null }
+       Test  = { $f = Get-WindowsOptionalFeature -Online -FeatureName MicrosoftWindowsPowerShellV2Root -ErrorAction Stop; [string]$f.State -ne 'Enabled' } },
+
+    @{ Name = 'Defender: enable network protection'; Category = 'Security'; Preset = @('Recommended')
+       Desc = 'Blocks connections to known malicious and phishing hosts from any app.'
+       Apply = { Set-MpPreference -EnableNetworkProtection Enabled -ErrorAction Stop }
+       Undo  = { Set-MpPreference -EnableNetworkProtection Disabled -ErrorAction SilentlyContinue }
+       Test  = { (Get-MpPreference -ErrorAction Stop).EnableNetworkProtection -eq 1 } },
+
+    @{ Name = 'Defender: scan removable drives and archives'; Category = 'Security'; Preset = @()
+       Desc = 'Full scans also check USB sticks and compressed files.'
+       Apply = { Set-MpPreference -DisableRemovableDriveScanning $false -DisableArchiveScanning $false -ErrorAction Stop }
+       Undo  = { Set-MpPreference -DisableRemovableDriveScanning $true -ErrorAction SilentlyContinue }
+       Test  = { -not (Get-MpPreference -ErrorAction Stop).DisableRemovableDriveScanning } },
+
+    @{ Name = 'Defender: high cloud-block level'; Category = 'Security'; Preset = @()
+       Desc = 'Defender blocks unknown files more aggressively while it waits for a cloud verdict. Occasional false positives.'
+       Apply = { Set-MpPreference -CloudBlockLevel High -ErrorAction Stop }
+       Undo  = { Set-MpPreference -CloudBlockLevel Default -ErrorAction SilentlyContinue }
+       Test  = { (Get-MpPreference -ErrorAction Stop).CloudBlockLevel -ge 2 } },
+
+    @{ Name = 'Block Office macros from the internet'; Category = 'Security'; Preset = @('Recommended')
+       Desc = 'Word, Excel and PowerPoint refuse to run macros in files downloaded from the web or email. Only matters if Office is installed.'
+       Reg  = @( (RegV 'HKCU:\Software\Policies\Microsoft\office\16.0\word\security' 'blockcontentexecutionfrominternet' 1),
+                 (RegV 'HKCU:\Software\Policies\Microsoft\office\16.0\excel\security' 'blockcontentexecutionfrominternet' 1),
+                 (RegV 'HKCU:\Software\Policies\Microsoft\office\16.0\powerpoint\security' 'blockcontentexecutionfrominternet' 1) ) },
+
+    # ---------------- Performance (more) ----------------
+    @{ Name = 'Merge service host processes (fewer svchost.exe)'; Category = 'Performance'; Preset = @()
+       Desc = 'Groups services into fewer svchost processes. Cleaner Task Manager; only meaningful with 8 GB RAM or more. Restart required.'
+       Reg  = @( (RegV 'HKLM:\SYSTEM\CurrentControlSet\Control' 'SvcHostSplitThresholdInKB' ([int][math]::Min(2147483647, [math]::Max(3670016, [math]::Floor((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1KB)))) 'DWord' 3670016) ); Reboot = $true },
+
+    # ---------------- Context menu ----------------
+    @{ Name = 'Add "Take ownership" to the right-click menu'; Category = 'Context menu'; Preset = @()
+       Desc = 'Files and folders get a Take ownership entry (takeown + grant Administrators full control). Handy for stubborn folders.'
+       Apply = { Set-ShellVerb 'SOFTWARE\Classes\*\shell\EduTakeOwnership' 'Take ownership' 'cmd.exe /c takeown /f "%1" && icacls "%1" /grant *S-1-5-32-544:F /c /l & pause' 'imageres.dll,-5314'
+                 Set-ShellVerb 'SOFTWARE\Classes\Directory\shell\EduTakeOwnership' 'Take ownership' 'cmd.exe /c takeown /f "%1" /r /d y && icacls "%1" /grant *S-1-5-32-544:F /t /c /l & pause' 'imageres.dll,-5314' }
+       Undo  = { Remove-HklmKey 'SOFTWARE\Classes\*\shell\EduTakeOwnership'; Remove-HklmKey 'SOFTWARE\Classes\Directory\shell\EduTakeOwnership' }
+       Test  = { Test-HklmKey 'SOFTWARE\Classes\Directory\shell\EduTakeOwnership' } },
+
+    @{ Name = 'Add "Open command prompt here" to folder background menu'; Category = 'Context menu'; Preset = @('Developer')
+       Desc = 'Right-click empty space in any folder to open cmd in that folder.'
+       Apply = { Set-ShellVerb 'SOFTWARE\Classes\Directory\Background\shell\EduCmdHere' 'Open command prompt here' 'cmd.exe /s /k pushd "%V"' 'cmd.exe' }
+       Undo  = { Remove-HklmKey 'SOFTWARE\Classes\Directory\Background\shell\EduCmdHere' }
+       Test  = { Test-HklmKey 'SOFTWARE\Classes\Directory\Background\shell\EduCmdHere' } },
+
+    @{ Name = 'Add "Open PowerShell window here" to folder background menu'; Category = 'Context menu'; Preset = @('Developer')
+       Desc = 'Right-click empty space in any folder to open PowerShell in that folder.'
+       Apply = { Set-ShellVerb 'SOFTWARE\Classes\Directory\Background\shell\EduPsHere' 'Open PowerShell window here' "powershell.exe -NoExit -Command `"Set-Location -LiteralPath '%V'`"" 'powershell.exe' }
+       Undo  = { Remove-HklmKey 'SOFTWARE\Classes\Directory\Background\shell\EduPsHere' }
+       Test  = { Test-HklmKey 'SOFTWARE\Classes\Directory\Background\shell\EduPsHere' } },
+
+    @{ Name = 'Add "Kill not responding tasks" to the desktop menu'; Category = 'Context menu'; Preset = @()
+       Desc = 'One click on the desktop closes every frozen app.'
+       Apply = { Set-ShellVerb 'SOFTWARE\Classes\DesktopBackground\Shell\EduKillHung' 'Kill not responding tasks' 'cmd.exe /c taskkill.exe /f /fi "status eq not responding"' 'taskmgr.exe' }
+       Undo  = { Remove-HklmKey 'SOFTWARE\Classes\DesktopBackground\Shell\EduKillHung' }
+       Test  = { Test-HklmKey 'SOFTWARE\Classes\DesktopBackground\Shell\EduKillHung' } },
+
+    @{ Name = 'Add "Restart Explorer" to the desktop menu'; Category = 'Context menu'; Preset = @()
+       Desc = 'Fixes a frozen taskbar or desktop with one click.'
+       Apply = { Set-ShellVerb 'SOFTWARE\Classes\DesktopBackground\Shell\EduRestartExplorer' 'Restart Explorer' 'cmd.exe /c taskkill.exe /f /im explorer.exe & start explorer.exe' 'explorer.exe' }
+       Undo  = { Remove-HklmKey 'SOFTWARE\Classes\DesktopBackground\Shell\EduRestartExplorer' }
+       Test  = { Test-HklmKey 'SOFTWARE\Classes\DesktopBackground\Shell\EduRestartExplorer' } },
+
+    @{ Name = 'Add "Copy to folder" and "Move to folder" to the right-click menu'; Category = 'Context menu'; Preset = @()
+       Desc = 'Classic shell entries that open a folder picker to copy or move the selected items.'
+       Apply = { Set-HklmDefault 'SOFTWARE\Classes\AllFilesystemObjects\shellex\ContextMenuHandlers\Copy To' '{C2FBB630-2971-11D1-A18C-00C04FD75D13}'
+                 Set-HklmDefault 'SOFTWARE\Classes\AllFilesystemObjects\shellex\ContextMenuHandlers\Move To' '{C2FBB631-2971-11D1-A18C-00C04FD75D13}' }
+       Undo  = { Remove-HklmKey 'SOFTWARE\Classes\AllFilesystemObjects\shellex\ContextMenuHandlers\Copy To'; Remove-HklmKey 'SOFTWARE\Classes\AllFilesystemObjects\shellex\ContextMenuHandlers\Move To' }
+       Test  = { Test-HklmKey 'SOFTWARE\Classes\AllFilesystemObjects\shellex\ContextMenuHandlers\Copy To' } },
+
+    @{ Name = 'Add "Open with Notepad" for every file type'; Category = 'Context menu'; Preset = @()
+       Desc = 'Quickly view any file as plain text.'
+       Apply = { Set-ShellVerb 'SOFTWARE\Classes\*\shell\EduOpenNotepad' 'Open with Notepad' 'notepad.exe "%1"' 'notepad.exe' }
+       Undo  = { Remove-HklmKey 'SOFTWARE\Classes\*\shell\EduOpenNotepad' }
+       Test  = { Test-HklmKey 'SOFTWARE\Classes\*\shell\EduOpenNotepad' } },
+
+    @{ Name = 'Declutter right-click menu (Cast to, Give access, Include in library, Pin to Start)'; Category = 'Context menu'; Preset = @()
+       Desc = 'Blocks four rarely used shell extensions from the classic context menu.'
+       Reg  = @( (RegV $SHBLK '{7AD84985-87B4-4a16-BE58-8B72A5B390F7}' '' 'String'), (RegV $SHBLK '{f81e9010-6ea4-11ce-a7ff-00aa003ca9f6}' '' 'String'),
+                 (RegV $SHBLK '{3dad6c5d-2167-4cae-9914-f99e41c12cfa}' '' 'String'), (RegV $SHBLK '{470C0EBD-5D73-4d58-9CED-E91E22E23282}' '' 'String') ); Explorer = $true },
+
+    @{ Name = 'Remove "Restore previous versions" from the right-click menu'; Category = 'Context menu'; Preset = @()
+       Desc = 'Hides the shadow-copy entry. Restore points and File History are not affected.'
+       Reg  = @( (RegV $SHBLK '{596AB062-B4D2-4215-9F74-E9109B0A8153}' '' 'String') ); Explorer = $true }
+)
+
 # ======================================================================
 #  ADVANCED CONTROLS  (Risk: Low / Medium / High - nothing preselected)
 # ======================================================================
@@ -1015,6 +1549,239 @@ $Extreme = @(
        Reboot = $true }
 )
 
+
+# ======================================================================
+#  ADVANCED CONTROLS - PACK 2 (v3)   (Risk: Low / Medium / High)
+# ======================================================================
+$ExtraTelemetryTasks = @(
+    '\Microsoft\Windows\Application Experience\MareBackup',
+    '\Microsoft\Windows\Application Experience\PcaPatchDbTask',
+    '\Microsoft\Windows\Application Experience\AitAgent',
+    '\Microsoft\Windows\Customer Experience Improvement Program\KernelCeipTask',
+    '\Microsoft\Windows\Customer Experience Improvement Program\BthSQM',
+    '\Microsoft\Windows\Customer Experience Improvement Program\HypervisorFlightingTask',
+    '\Microsoft\Windows\NetTrace\GatherNetworkInfo',
+    '\Microsoft\Windows\Device Information\Device',
+    '\Microsoft\Windows\Device Information\Device User',
+    '\Microsoft\Windows\DiskFootprint\Diagnostics',
+    '\Microsoft\Windows\Flighting\FeatureConfig\ReconcileFeatures',
+    '\Microsoft\Windows\Flighting\OneSettings\RefreshCache',
+    '\Microsoft\Windows\Power Efficiency Diagnostics\AnalyzeSystem'
+)
+$OfficeTelemetryTasks = @(
+    '\Microsoft\Office\OfficeTelemetryAgentFallBack', '\Microsoft\Office\OfficeTelemetryAgentFallBack2016',
+    '\Microsoft\Office\OfficeTelemetryAgentLogOn', '\Microsoft\Office\OfficeTelemetryAgentLogOn2016'
+)
+$SUB_VIDEO = '7516b95f-f776-4464-8c53-06167f40cc99'
+$SUB_SLEEP = '238c9fa8-0aad-41ed-83f4-97be242c8f20'
+$SUB_USB   = '2a737441-1930-4402-8d77-b2bebba308a3'
+$PFX       = 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters'
+
+$Extreme += @(
+    # ---------------- Services (more) ----------------
+    @{ Name = 'Disable Remote Desktop services'; Risk = 'Medium'; Category = 'Services'
+       Desc = 'Stops the PC from being a Remote Desktop host and closes that attack surface. Outgoing RDP connections still work. Do not use while connected through Remote Desktop.'
+       Svc = @('TermService','UmRdpService','SessionEnv'); SvcDefault = 'demand' },
+
+    @{ Name = 'Disable Windows Biometric Service'; Risk = 'Medium'; Category = 'Services'
+       Desc = 'Breaks fingerprint and face sign-in (Windows Hello biometrics). PIN and password still work.'
+       Svc = @('WbioSrvc'); SvcDefault = 'demand' },
+
+    @{ Name = 'Disable touch keyboard and handwriting service'; Risk = 'Low'; Category = 'Services'
+       Desc = 'Desktop PCs only. Breaks the on-screen keyboard, pen input and emoji panel typing on touch devices.'
+       Svc = @('TabletInputService'); SvcDefault = 'demand' },
+
+    @{ Name = 'Disable Smart Card services'; Risk = 'Low'; Category = 'Services'
+       Desc = 'Only needed for smart-card readers (corporate / government sign-in).'
+       Svc = @('SCardSvr','ScDeviceEnum','SCPolicySvc'); SvcDefault = 'demand' },
+
+    @{ Name = 'Disable Connected Devices Platform (CDP)'; Risk = 'Medium'; Category = 'Services'
+       Desc = 'Breaks Nearby sharing, Timeline-style features and some Phone Link pairing.'
+       Svc = @('CDPSvc'); SvcDefault = 'delayed-auto' },
+
+    @{ Name = 'Disable sensor services'; Risk = 'Medium'; Category = 'Services'
+       Desc = 'Desktops only. Laptops and tablets lose auto-brightness, rotation and some location features.'
+       Svc = @('SensrSvc','SensorService','SensorDataService'); SvcDefault = 'demand' },
+
+    @{ Name = 'Disable Windows Image Acquisition (scanners and cameras)'; Risk = 'Low'; Category = 'Services'
+       Desc = 'Scanners and some webcams stop importing images through Windows. Normal webcam use in apps is unaffected.'
+       Svc = @('stisvc'); SvcDefault = 'demand' },
+
+    @{ Name = 'Disable Secondary Logon'; Risk = 'Low'; Category = 'Services'
+       Desc = 'Breaks "Run as a different user" from the right-click menu.'
+       Svc = @('seclogon'); SvcDefault = 'demand' },
+
+    @{ Name = 'Disable Windows Remote Management and Remote Registry'; Risk = 'Low'; Category = 'Services'
+       Desc = 'Closes remote PowerShell / WinRM and remote registry access. Only IT admins need them.'
+       Svc = @('WinRM','RemoteRegistry'); SvcDefault = 'demand' },
+
+    @{ Name = 'Disable Offline Files and legacy network helpers'; Risk = 'Low'; Category = 'Services'
+       Desc = 'Turns off Offline Files, the NetBIOS helper and AllJoyn router. Rarely used at home.'
+       Svc = @('CscService','lmhosts','AJRouter'); SvcDefault = 'demand' },
+
+    @{ Name = 'Disable Telephony and SMS Router services'; Risk = 'Low'; Category = 'Services'
+       Desc = 'Unused on desktops without modems or cellular hardware.'
+       Svc = @('TapiSrv','SmsRouter'); SvcDefault = 'demand' },
+
+    @{ Name = 'Disable Diagnostic Policy / WDI services'; Risk = 'Medium'; Category = 'Services'
+       Desc = 'Stops the built-in troubleshooters and diagnostic data processing. "Troubleshoot problems" will not work.'
+       Svc = @('DPS','WdiServiceHost','WdiSystemHost'); SvcDefault = 'auto' },
+
+    @{ Name = 'Disable NVIDIA telemetry container'; Risk = 'Low'; Category = 'Services'
+       Desc = 'Stops the NVIDIA usage-reporting service. GeForce drivers and control panel keep working.'
+       Svc = @('NvTelemetryContainer'); SvcDefault = 'auto' },
+
+    @{ Name = 'Disable block-level backup engine'; Risk = 'Low'; Category = 'Services'
+       Desc = 'Only used by the old Windows Backup (Backup and Restore) feature.'
+       Svc = @('wbengine'); SvcDefault = 'demand' },
+
+    @{ Name = 'Disable third-party updater services (Google, Adobe, Edge, Firefox)'; Risk = 'Medium'; Category = 'Services'
+       Desc = 'Browsers and Adobe stop updating themselves in the background. Update them manually - outdated browsers are a security risk.'
+       Svc = @('gupdate','gupdatem','AdobeARMservice','edgeupdate','edgeupdatem','MozillaMaintenance'); SvcDefault = 'auto' },
+
+    @{ Name = 'Disable automatic maintenance'; Risk = 'Medium'; Category = 'Services'
+       Desc = 'Stops the nightly maintenance window (idle defrag/TRIM, scans, diagnostics). Run Maintenance tasks manually from time to time.'
+       Reg = @( (RegV 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\Maintenance' 'MaintenanceDisabled' 1) ) },
+
+    # ---------------- Telemetry & hosts ----------------
+    @{ Name = 'Block Microsoft telemetry domains (hosts file)'; Risk = 'Medium'; Category = 'Telemetry & hosts'
+       Desc = 'Adds a clearly marked block to the hosts file that sends known telemetry hosts to 0.0.0.0. Windows Update and Store are not touched. Some antivirus tools warn when hosts changes.'
+       Apply = { Set-HostsBlock $TelemetryHosts }
+       Undo  = { Remove-HostsBlock; ipconfig /flushdns | Out-Null }
+       Test  = { Test-HostsBlock } },
+
+    @{ Name = 'Disable diagnostic tracking auto-loggers'; Risk = 'Low'; Category = 'Telemetry & hosts'
+       Desc = 'Stops the DiagTrack and SQM event-trace sessions from starting at boot.'
+       Reg = @( (RegV 'HKLM:\SYSTEM\CurrentControlSet\Control\WMI\Autologger\AutoLogger-Diagtrack-Listener' 'Start' 0 'DWord' 1),
+                (RegV 'HKLM:\SYSTEM\CurrentControlSet\Control\WMI\Autologger\SQMLogger' 'Start' 0 'DWord' 1) ); Reboot = $true },
+
+    @{ Name = 'Disable extra diagnostic and flighting tasks'; Risk = 'Low'; Category = 'Telemetry & hosts'
+       Desc = 'Turns off 13 more scheduled tasks: app-experience backup, CEIP kernel/Bluetooth, device info, disk footprint, flighting and power diagnostics.'
+       Tasks = $ExtraTelemetryTasks },
+
+    @{ Name = 'Disable Microsoft Office telemetry agent tasks'; Risk = 'Low'; Category = 'Telemetry & hosts'
+       Desc = 'Turns off the Office Telemetry Agent scheduled tasks. Only matters if Office is installed.'
+       Tasks = $OfficeTelemetryTasks },
+
+    @{ Name = 'Enable automatic DNS over HTTPS (Windows 11)'; Risk = 'Low'; Category = 'Telemetry & hosts'
+       Desc = 'Windows upgrades to encrypted DNS automatically when your DNS server supports it (Cloudflare, Google, Quad9 all do).'
+       Reg = @( (RegV 'HKLM:\SYSTEM\CurrentControlSet\Services\Dnscache\Parameters' 'EnableAutoDoh' 2) ) },
+
+    # ---------------- CPU & power (more) ----------------
+    @{ Name = 'Energy performance preference: maximum performance (AC)'; Risk = 'Low'; Category = 'CPU & power'
+       Desc = 'Tells the CPU to favor speed over efficiency on supported processors (Intel Speed Shift / AMD CPPC).'
+       Pwr = @( (PwrV $SUB_PROC '36687f9e-e3a5-4dbf-b1dc-15eb381c6863' 0 50) ) },
+
+    @{ Name = 'Disable CPU idle states / C-states (AC)'; Risk = 'Medium'; Category = 'CPU & power'
+       Desc = 'Cores never enter deep idle: lowest wake-up latency but much higher idle power and heat. Desktops with good cooling only.'
+       Pwr = @( (PwrV $SUB_PROC '5d76a2ca-e8c0-402f-a133-2158492d58ad' 1 0) ) },
+
+    @{ Name = 'Never turn off the display (AC power)'; Risk = 'Low'; Category = 'CPU & power'
+       Desc = 'The screen stays on while plugged in. Good for dashboards and long sessions; not for OLED screens.'
+       Pwr = @( (PwrV $SUB_VIDEO '3c0bc021-c8a8-4e07-a973-6b14cbcb2b7e' 0 600) ) },
+
+    @{ Name = 'Never put the PC to sleep (AC power)'; Risk = 'Low'; Category = 'CPU & power'
+       Desc = 'Stops automatic sleep while plugged in. Downloads, servers and renders are never interrupted.'
+       Pwr = @( (PwrV $SUB_SLEEP '29f6c1db-86da-48c5-9fdb-f2b67b1f44da' 0 1800) ) },
+
+    @{ Name = 'Disable wake timers (AC power)'; Risk = 'Low'; Category = 'CPU & power'
+       Desc = 'Stops scheduled tasks and apps from waking the PC from sleep in the middle of the night.'
+       Pwr = @( (PwrV $SUB_SLEEP 'bd3b718a-0680-4d9d-8ab2-e1d2b4ac806d' 0 1) ) },
+
+    @{ Name = 'Disable USB 3 link power management (AC)'; Risk = 'Low'; Category = 'CPU & power'
+       Desc = 'Fixes USB 3 devices (headsets, capture cards, controllers) that disconnect or lag when idle.'
+       Pwr = @( (PwrV $SUB_USB 'd4e98f31-5ffe-4ce1-be31-1b38b384c009' 0 1) ) },
+
+    # ---------------- Memory ----------------
+    @{ Name = 'Keep the Windows kernel in RAM (disable paging executive)'; Risk = 'Medium'; Category = 'Memory'
+       Desc = 'Drivers and the kernel are never paged out to disk. Only with 16 GB RAM or more. Restart required.'
+       Reg = @( (RegV $MEMMGR 'DisablePagingExecutive' 1 'DWord' 0) ); Reboot = $true },
+
+    @{ Name = 'Disable Prefetcher and Superfetch (registry)'; Risk = 'Medium'; Category = 'Memory'
+       Desc = 'Stops Windows pre-loading app data into RAM. Reduces background disk reads; apps on HDDs may launch slower. Restart required.'
+       Reg = @( (RegV $PFX 'EnablePrefetcher' 0 'DWord' 3), (RegV $PFX 'EnableSuperfetch' 0 'DWord' 3) ); Reboot = $true },
+
+    @{ Name = 'Disable memory page combining'; Risk = 'Low'; Category = 'Memory'
+       Desc = 'Stops Windows scanning RAM for identical pages to merge. Saves a little CPU; uses a little more RAM.'
+       Apply = { Disable-MMAgent -PageCombining -ErrorAction Stop }
+       Undo  = { Enable-MMAgent -PageCombining -ErrorAction SilentlyContinue }
+       Test  = { -not (Get-MMAgent -ErrorAction Stop).PageCombining } },
+
+    @{ Name = 'Disable application pre-launch and launch prefetching'; Risk = 'Medium'; Category = 'Memory'
+       Desc = 'Windows no longer predicts and pre-loads apps you use often. Frees RAM; apps may open slightly slower the first time.'
+       Apply = { Disable-MMAgent -ApplicationPreLaunch -ApplicationLaunchPrefetching -ErrorAction Stop }
+       Undo  = { Enable-MMAgent -ApplicationPreLaunch -ApplicationLaunchPrefetching -ErrorAction SilentlyContinue }
+       Test  = { $m = Get-MMAgent -ErrorAction Stop; (-not $m.ApplicationPreLaunch) -and (-not $m.ApplicationLaunchPrefetching) } },
+
+    @{ Name = 'Disable crash memory dumps'; Risk = 'Low'; Category = 'Memory'
+       Desc = 'No dump file is written after a blue screen. Saves disk space and writes, but nobody can analyse the crash afterwards.'
+       Reg = @( (RegV $CRASH 'CrashDumpEnabled' 0 'DWord' 7) ) },
+
+    # ---------------- Boot & kernel ----------------
+    @{ Name = 'Disable dynamic tick'; Risk = 'Medium'; Category = 'Boot & kernel'
+       Desc = 'Keeps the system timer ticking at a steady rate. Can reduce stutter in some games; raises idle power use. Restart required.'
+       Apply = { bcdedit /set disabledynamictick yes | Out-Null; if ($LASTEXITCODE -ne 0) { throw 'bcdedit failed (Secure Boot / BitLocker policy may block it).' } }
+       Undo  = { bcdedit /deletevalue disabledynamictick | Out-Null }
+       Test  = { "$(bcdedit /enum '{current}' 2>&1)" -match 'disabledynamictick\s+Yes' }
+       Reboot = $true },
+
+    @{ Name = 'Shorten boot menu timeout to 3 seconds'; Risk = 'Low'; Category = 'Boot & kernel'
+       Desc = 'Only matters on dual-boot or recovery-menu setups. Shaves a few seconds off every start.'
+       Apply = { bcdedit /timeout 3 | Out-Null; if ($LASTEXITCODE -ne 0) { throw 'bcdedit failed.' } }
+       Undo  = { bcdedit /timeout 30 | Out-Null }
+       Test  = { "$(bcdedit /enum '{bootmgr}' 2>&1)" -match '(?m)timeout\s+3\s*$' } },
+
+    @{ Name = 'Skip automatic startup repair loop'; Risk = 'Medium'; Category = 'Boot & kernel'
+       Desc = 'Windows no longer launches Automatic Repair after failed boots. Useful if a bad driver traps you in a repair loop, but you lose the safety net.'
+       Apply = { bcdedit /set '{current}' bootstatuspolicy ignoreallfailures | Out-Null; if ($LASTEXITCODE -ne 0) { throw 'bcdedit failed.' } }
+       Undo  = { bcdedit /deletevalue '{current}' bootstatuspolicy | Out-Null }
+       Test  = { "$(bcdedit /enum '{current}' 2>&1)" -match 'bootstatuspolicy\s+IgnoreAllFailures' } },
+
+    # ---------------- Latency & input ----------------
+    @{ Name = 'Smaller mouse and keyboard input queues'; Risk = 'Low'; Category = 'Latency & input'
+       Desc = 'Cuts the driver data queue from 100 to 16 entries so stale input is dropped sooner. Restart required.'
+       Reg = @( (RegV 'HKLM:\SYSTEM\CurrentControlSet\Services\mouclass\Parameters' 'MouseDataQueueSize' 16 'DWord' 100),
+                (RegV 'HKLM:\SYSTEM\CurrentControlSet\Services\kbdclass\Parameters' 'KeyboardDataQueueSize' 16 'DWord' 100) ); Reboot = $true },
+
+    # ---------------- Network (more) ----------------
+    @{ Name = 'Disable NetBIOS over TCP/IP (all adapters)'; Risk = 'Medium'; Category = 'Network'
+       Desc = 'Closes a legacy name-resolution channel used for spoofing attacks. Breaks name lookups for very old file shares.'
+       Apply = { Set-NetbiosAll 2 }
+       Undo  = { Set-NetbiosAll 0 }
+       Test  = { Test-NetbiosOff } },
+
+    @{ Name = 'Prefer IPv4 over IPv6'; Risk = 'Low'; Category = 'Network'
+       Desc = 'Keeps IPv6 enabled but tries IPv4 first. Fixes slow connects on networks with broken IPv6. Restart required.'
+       Reg = @( (RegV 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip6\Parameters' 'DisabledComponents' 32) ); Reboot = $true },
+
+    @{ Name = 'Network hardening: block source routing and ICMP redirects'; Risk = 'Low'; Category = 'Network'
+       Desc = 'Stops the PC accepting packets that try to steer its traffic. No effect on normal use.'
+       Reg = @( (RegV 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters' 'DisableIPSourceRouting' 2),
+                (RegV 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip6\Parameters' 'DisableIPSourceRouting' 2),
+                (RegV 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters' 'EnableICMPRedirect' 0) ) },
+
+    # ---------------- Storage (more) ----------------
+    @{ Name = 'Increase NTFS memory usage'; Risk = 'Low'; Category = 'Storage'
+       Desc = 'Lets NTFS use more paged-pool RAM for file-system caches. Helps folders with millions of files. Restart required.'
+       Reg = @( (RegV 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' 'NtfsMemoryUsage' 2) ); Reboot = $true },
+
+    # ---------------- Security hardening ----------------
+    @{ Name = 'Disable Windows Script Host (.vbs / .js)'; Risk = 'Medium'; Category = 'Security hardening'
+       Desc = 'Blocks double-click VBScript and JScript files, a top malware delivery method. Breaks legacy scripts and some installers.'
+       Reg = @( (RegV 'HKLM:\SOFTWARE\Microsoft\Windows Script Host\Settings' 'Enabled' 0) ) },
+
+    @{ Name = 'Send NTLMv2 only (refuse LM and NTLMv1)'; Risk = 'Medium'; Category = 'Security hardening'
+       Desc = 'Rejects the weak legacy sign-in protocols. Old NAS boxes and ancient Windows versions on your network may stop connecting.'
+       Reg = @( (RegV 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa' 'LmCompatibilityLevel' 5) ) },
+
+    @{ Name = 'Restrict anonymous enumeration of accounts and shares'; Risk = 'Low'; Category = 'Security hardening'
+       Desc = 'Anonymous network users can no longer list account names and shares on this PC.'
+       Reg = @( (RegV 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa' 'RestrictAnonymous' 1 'DWord' 0) ) }
+)
+
+# keep the scary category at the bottom of the list
+$Extreme = @($Extreme | Where-Object { $_.Category -ne 'Security trade-offs' }) + @($Extreme | Where-Object { $_.Category -eq 'Security trade-offs' })
+
 # High-risk security bypasses (Defender removal, UAC off, Spectre/Meltdown mitigation disabling) are intentionally not included.
 
 # ======================================================================
@@ -1151,6 +1918,125 @@ $BloatCatalog = [ordered]@{
     'Prime Video'               = @('*AmazonVideo*')
 }
 
+
+# ======================================================================
+#  CATALOG EXTRAS (v3) - merged into the lists above, existing entries win
+# ======================================================================
+$AppExtras = [ordered]@{
+    'Browsers' = [ordered]@{
+        'Opera GX'                 = 'Opera.OperaGX'
+        'Tor Browser'              = 'TorProject.TorBrowser'
+        'Thunderbird (email)'      = 'Mozilla.Thunderbird'
+    }
+    'Gaming' = [ordered]@{
+        'Minecraft Launcher'       = 'Mojang.MinecraftLauncher'
+        'Prism Launcher (Minecraft)' = 'PrismLauncher.PrismLauncher'
+        'Roblox Player'            = 'Roblox.Roblox'
+        'Roblox Studio'            = 'Roblox.RobloxStudio'
+        'Heroic Games Launcher'    = 'HeroicGamesLauncher.HeroicGamesLauncher'
+        'Overwolf'                 = 'Overwolf.Overwolf'
+        'Parsec'                   = 'Parsec.Parsec'
+        'Moonlight'                = 'MoonlightGameStreamingProject.Moonlight'
+        'Sunshine (game streaming host)' = 'LizardByte.Sunshine'
+        'Logitech G HUB'           = 'Logitech.GHUB'
+        'SteelSeries GG'           = 'SteelSeries.GG'
+        'TeamSpeak'                = 'TeamSpeakSystems.TeamSpeakClient'
+        'Mumble'                   = 'Mumble.Mumble.Client'
+    }
+    'Hardware & tuning' = [ordered]@{
+        'HWMonitor'                = 'CPUID.HWMonitor'
+        'Core Temp'                = 'ALCPU.CoreTemp'
+        'Fan Control'              = 'Rem0o.FanControl'
+        'RTSS (RivaTuner)'         = 'Guru3D.RTSS'
+        'Process Lasso'            = 'BitSum.ProcessLasso'
+        'ThrottleStop'             = 'TechPowerUp.ThrottleStop'
+        'NVIDIA Profile Inspector' = 'Orbmu2k.NvidiaProfileInspector'
+    }
+    'Media & streaming' = [ordered]@{
+        'Streamlabs'               = 'Streamlabs.Streamlabs'
+        'foobar2000'               = 'PeterPawlowski.foobar2000'
+        'FFmpeg'                   = 'Gyan.FFmpeg'
+        'yt-dlp'                   = 'yt-dlp.yt-dlp'
+        'Kdenlive'                 = 'KDE.Kdenlive'
+        'DaVinci Resolve'          = 'Blackmagic.DaVinciResolve'
+    }
+    'Creative' = [ordered]@{
+        'Blender'                  = 'BlenderFoundation.Blender'
+        'GIMP'                     = 'GIMP.GIMP'
+        'Krita'                    = 'KDE.Krita'
+        'Inkscape'                 = 'Inkscape.Inkscape'
+        'Paint.NET'                = 'dotPDNLLC.paintdotnet'
+    }
+    'Utilities' = [ordered]@{
+        'AutoHotkey'               = 'AutoHotkey.AutoHotkey'
+        'Ditto (clipboard manager)' = 'Ditto.Ditto'
+        'Greenshot'                = 'Greenshot.Greenshot'
+        'TreeSize Free'            = 'JAMSoftware.TreeSize.Free'
+        'WinDirStat'               = 'WinDirStat.WinDirStat'
+        'BleachBit'                = 'BleachBit.BleachBit'
+        'Bulk Crap Uninstaller'    = 'Klocman.BulkCrapUninstaller'
+        'NanaZip'                  = 'M2Team.NanaZip'
+        'Files (modern file manager)' = 'FilesCommunity.Files'
+        'TranslucentTB'            = 'CharlesMilette.TranslucentTB'
+        'Rainmeter'                = 'Rainmeter.Rainmeter'
+        'Ventoy'                   = 'Ventoy.Ventoy'
+        'balenaEtcher'             = 'Balena.Etcher'
+        'Sysinternals Suite'       = 'Microsoft.Sysinternals.Suite'
+        'LocalSend'                = 'LocalSend.LocalSend'
+        'LibreOffice'              = 'TheDocumentFoundation.LibreOffice'
+        'Obsidian'                 = 'Obsidian.Obsidian'
+        'AnyDesk'                  = 'AnyDeskSoftwareGmbH.AnyDesk'
+        'RustDesk'                 = 'RustDesk.RustDesk'
+    }
+    'Security & privacy' = [ordered]@{
+        'KeePassXC'                = 'KeePassXCTeam.KeePassXC'
+        'VeraCrypt'                = 'IDRIX.VeraCrypt'
+        'WireGuard'                = 'WireGuard.WireGuard'
+        'Proton VPN'               = 'Proton.ProtonVPN'
+        'Mullvad VPN'              = 'MullvadVPN.MullvadVPN'
+        'Cloudflare WARP'          = 'Cloudflare.Warp'
+        'simplewall (firewall)'    = 'Henry++.simplewall'
+        'O&O ShutUp10++'           = 'OO-Software.ShutUp10'
+    }
+    'Development' = [ordered]@{
+        'Cursor'                   = 'Anysphere.Cursor'
+        'Sublime Text 4'           = 'SublimeHQ.SublimeText.4'
+        'Java JDK 21 (Temurin)'    = 'EclipseAdoptium.Temurin.21.JDK'
+        'IntelliJ IDEA Community'  = 'JetBrains.IntelliJIDEA.Community'
+        'Android Studio'           = 'Google.AndroidStudio'
+        'CMake'                    = 'Kitware.CMake'
+        'LLVM / Clang'             = 'LLVM.LLVM'
+        'MSYS2'                    = 'MSYS2.MSYS2'
+        'VS 2022 Build Tools'      = 'Microsoft.VisualStudio.2022.BuildTools'
+        'Windows Subsystem for Linux' = 'Microsoft.WSL'
+        'Wireshark'                = 'WiresharkFoundation.Wireshark'
+        'DB Browser for SQLite'    = 'DBBrowserForSQLite.DBBrowserForSQLite'
+        'FileZilla'                = 'TimKosse.FileZilla.Client'
+    }
+}
+foreach ($cat in $AppExtras.Keys) {
+    if (-not $AppCatalog.Contains($cat)) { $AppCatalog[$cat] = [ordered]@{} }
+    foreach ($app in $AppExtras[$cat].Keys) {
+        if (-not $AppCatalog[$cat].Contains($app)) { $AppCatalog[$cat][$app] = $AppExtras[$cat][$app] }
+    }
+}
+
+$BloatExtras = [ordered]@{
+    'Xbox extras (TCUI, speech overlay, identity)' = @('Microsoft.Xbox.TCUI','Microsoft.XboxSpeechToTextOverlay','Microsoft.XboxIdentityProvider')
+    'Media Player (Groove Music)'  = @('Microsoft.ZuneMusic')
+    'Widgets (Web Experience Pack)' = @('MicrosoftWindows.Client.WebExperience')
+    'Netflix'                      = @('*Netflix*')
+    'Hulu'                         = @('*Hulu*')
+    'Twitter / X'                  = @('*Twitter*')
+    'Dolby Access'                 = @('DolbyLaboratories.DolbyAccess')
+    'Messenger'                    = @('*Messenger*')
+    'Roblox (Store version)'       = @('ROBLOXCORPORATION.ROBLOX')
+    'Plex (Store version)'         = @('*PlexMediaPlayer*')
+    'Amazon Alexa'                 = @('*Alexa*')
+    'Pinterest / Instagram web apps' = @('*Pinterest*')
+}
+foreach ($b in $BloatExtras.Keys) { if (-not $BloatCatalog.Contains($b)) { $BloatCatalog[$b] = $BloatExtras[$b] } }
+
 # ======================================================================
 #  GUI XAML
 # ======================================================================
@@ -1252,6 +2138,16 @@ $xaml = @'
         <TextBlock Name="txtVersion" Text="SYSTEM UTILITY" FontSize="9" Foreground="#737B8C" Margin="5,0,0,16"/>
       </StackPanel>
       <StackPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
+        <Border Background="#161A21" CornerRadius="6" Padding="10,8" Margin="0,0,0,10">
+          <StackPanel>
+            <TextBlock Text="LIVE" FontSize="9" Foreground="#737B8C" Margin="0,0,0,4"/>
+            <DockPanel><TextBlock Name="txtLiveCpu" DockPanel.Dock="Right" Text="--%" FontSize="11" Foreground="#9CC3FF"/><TextBlock Text="CPU" FontSize="11" Foreground="#AAB2C0"/></DockPanel>
+            <ProgressBar Name="barCpu" Height="4" Minimum="0" Maximum="100" Value="0" Foreground="#58A6FF" Background="#262B35" BorderThickness="0" Margin="0,2,0,6"/>
+            <DockPanel><TextBlock Name="txtLiveRam" DockPanel.Dock="Right" Text="--%" FontSize="11" Foreground="#9CC3FF"/><TextBlock Text="RAM" FontSize="11" Foreground="#AAB2C0"/></DockPanel>
+            <ProgressBar Name="barRam" Height="4" Minimum="0" Maximum="100" Value="0" Foreground="#A78BFA" Background="#262B35" BorderThickness="0" Margin="0,2,0,6"/>
+            <TextBlock Name="txtLiveUp" Text="Uptime --" FontSize="10" Foreground="#737B8C"/>
+          </StackPanel>
+        </Border>
         <Button Name="btnExportProfile" Content="Export profile" Style="{StaticResource Ghost}" Margin="0,0,0,6" ToolTip="Save the currently checked tweaks, advanced controls and apps to a JSON file"/>
         <Button Name="btnImportProfile" Content="Import profile" Style="{StaticResource Ghost}" Margin="0,0,0,6" ToolTip="Check items from a previously exported profile"/>
         <Button Name="btnRP" Content="Create restore point" Style="{StaticResource Ghost}" Margin="0,0,0,0"/>
@@ -1265,6 +2161,7 @@ $xaml = @'
           <Button Name="navStartup" Content="Startup apps"      Style="{StaticResource Nav}"/>
           <Button Name="navInstall" Content="Applications"      Style="{StaticResource Nav}"/>
           <Button Name="navClean"   Content="Maintenance"       Style="{StaticResource Nav}"/>
+          <Button Name="navTools"   Content="Toolbox"           Style="{StaticResource Nav}"/>
           <Button Name="navNetwork" Content="Network"           Style="{StaticResource Nav}"/>
           <Button Name="navSysInfo" Content="System &amp; health" Style="{StaticResource Nav}"/>
           <Button Name="navLog"     Content="Activity log"      Style="{StaticResource Nav}"/>
@@ -1292,6 +2189,7 @@ $xaml = @'
               <Button Name="btnPresetDev"  Content="Developer"   Style="{StaticResource Chip}"/>
               <Button Name="btnSelAll"     Content="Select visible" Style="{StaticResource Chip}"/>
               <Button Name="btnSelUnapplied" Content="Select not-applied" Style="{StaticResource Chip}"/>
+              <Button Name="btnSelApplied" Content="Select applied" Style="{StaticResource Chip}" ToolTip="Check everything already applied - then click Undo selected to roll it all back"/>
               <Button Name="btnSelNone"    Content="Clear"       Style="{StaticResource Chip}"/>
             </WrapPanel>
             <TextBox Name="txtTweakSearch" Height="32" ToolTip="Filter by name, description or category" Margin="0,0,0,8"/>
@@ -1312,6 +2210,7 @@ $xaml = @'
             <TextBlock Style="{StaticResource Sub}" Text="System-level changes that trade power, compatibility or security for performance. Read each description. Nothing is preselected and a restore point is created first."/>
             <WrapPanel Margin="0,0,0,6">
               <Button Name="btnXSelLow"  Content="Select low-risk" Style="{StaticResource Chip}"/>
+              <Button Name="btnXSelApplied" Content="Select applied" Style="{StaticResource Chip}"/>
               <Button Name="btnXSelNone" Content="Clear"           Style="{StaticResource Chip}"/>
             </WrapPanel>
             <TextBox Name="txtExtremeSearch" Height="32" ToolTip="Filter advanced controls" Margin="0,0,0,8"/>
@@ -1436,6 +2335,56 @@ $xaml = @'
           </StackPanel>
         </ScrollViewer>
 
+        <!-- TOOLBOX -->
+        <ScrollViewer Name="pgTools" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
+          <StackPanel Margin="0,0,10,0">
+            <TextBlock Text="Toolbox" Style="{StaticResource H1}"/>
+            <TextBlock Style="{StaticResource Sub}" Text="Power tools: temporary boost mode, RAM cleaner, process manager, system utilities, Windows features and quick launchers. Results appear in the output box at the bottom of this page."/>
+            <TextBlock Text="BOOST AND MEMORY" Style="{StaticResource H2}"/>
+            <WrapPanel>
+              <Button Name="btnBoost"      Content="Boost mode: ON" Style="{StaticResource Tool}" Background="#2F6B4F" ToolTip="Temporarily switches to High performance, pauses SysMain/Search/DiagTrack/Print Spooler/Error Reporting and trims RAM. Turn it off (or close EduUtil) to restore everything."/>
+              <Button Name="btnFreeRam"    Content="Free RAM now" Style="{StaticResource Tool}" ToolTip="Trims every process working set and purges the standby list."/>
+              <Button Name="btnPlanBal"    Content="Power plan: Balanced" Style="{StaticResource Tool}"/>
+              <Button Name="btnPlanHigh"   Content="Power plan: High performance" Style="{StaticResource Tool}"/>
+              <Button Name="btnPlanSaver"  Content="Power plan: Power saver" Style="{StaticResource Tool}"/>
+              <Button Name="btnPlanShow"   Content="Show active power plan" Style="{StaticResource Tool}"/>
+            </WrapPanel>
+            <TextBlock Text="PROCESS MANAGER" Style="{StaticResource H2}"/>
+            <WrapPanel>
+              <Button Name="btnProcList" Content="List top 30 by memory" Style="{StaticResource Tool}"/>
+              <Button Name="btnProcKill" Content="End selected process" Style="{StaticResource Danger}" Width="250"/>
+            </WrapPanel>
+            <ListBox Name="lstProc" Height="190" Background="#0D0F13" Foreground="#C9CED8" BorderThickness="0" FontFamily="Consolas" FontSize="12" Margin="0,0,0,6"/>
+            <TextBlock Text="SYSTEM TOOLS" Style="{StaticResource H2}"/>
+            <WrapPanel>
+              <Button Name="btnBrowserCache" Content="Clear browser caches" Style="{StaticResource Tool}" ToolTip="Chrome, Edge, Brave, Firefox caches only. Logins, history and bookmarks are kept."/>
+              <Button Name="btnLargeFiles"   Content="Find 30 largest files" Style="{StaticResource Tool}"/>
+              <Button Name="btnExportApps"   Content="Export installed programs (CSV)" Style="{StaticResource Tool}"/>
+              <Button Name="btnWifi"         Content="Show saved Wi-Fi passwords" Style="{StaticResource Tool}"/>
+              <Button Name="btnActivation"   Content="Windows activation status" Style="{StaticResource Tool}"/>
+              <Button Name="btnRebuildSearch" Content="Rebuild search index" Style="{StaticResource Tool}"/>
+              <Button Name="btnClearEvents"  Content="Clear all event logs" Style="{StaticResource Tool}"/>
+              <Button Name="btnReregStore"   Content="Re-register Store apps" Style="{StaticResource Tool}" ToolTip="Fixes apps that crash or will not open (Settings, Start, Store, Photos...). Takes a few minutes."/>
+              <Button Name="btnGodMode"      Content="Create God Mode folder" Style="{StaticResource Tool}"/>
+              <Button Name="btnHostsOpen"    Content="Open hosts file" Style="{StaticResource Tool}"/>
+              <Button Name="btnUpdateCheck"  Content="Check for EduUtil update" Style="{StaticResource Tool}" Background="#2A3550"/>
+            </WrapPanel>
+            <TextBlock Text="WINDOWS FEATURES (installs via DISM)" Style="{StaticResource H2}"/>
+            <WrapPanel>
+              <Button Name="btnFeatNet35"   Content="Enable .NET Framework 3.5" Style="{StaticResource Tool}"/>
+              <Button Name="btnFeatWsl"     Content="Enable WSL + Virtual Machine Platform" Style="{StaticResource Tool}"/>
+              <Button Name="btnFeatSandbox" Content="Enable Windows Sandbox" Style="{StaticResource Tool}"/>
+              <Button Name="btnFeatHyperV"  Content="Enable Hyper-V" Style="{StaticResource Tool}"/>
+              <Button Name="btnFeatTelnet"  Content="Enable Telnet client" Style="{StaticResource Tool}"/>
+              <Button Name="btnFeatDialog"  Content="Open Windows Features dialog" Style="{StaticResource Tool}"/>
+            </WrapPanel>
+            <TextBlock Text="QUICK LAUNCH" Style="{StaticResource H2}"/>
+            <WrapPanel Name="quickLaunch"/>
+            <TextBlock Text="OUTPUT" Style="{StaticResource H2}"/>
+            <TextBox Name="txtToolsOut" IsReadOnly="True" Height="230" Background="#0D0F13" Foreground="#9CC3FF" FontFamily="Consolas" FontSize="12" BorderThickness="0" Padding="10" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" TextWrapping="NoWrap" Margin="0,0,0,12"/>
+          </StackPanel>
+        </ScrollViewer>
+
         <!-- NETWORK -->
         <DockPanel Name="pgNetwork" Visibility="Collapsed">
           <StackPanel DockPanel.Dock="Top">
@@ -1496,6 +2445,33 @@ $xaml = @'
         <TextBlock Name="txtStatus" Text="Ready" Foreground="#AAB2C0" FontSize="11" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
       </Border>
     </Grid>
+    <Border Name="loadingOverlay" Grid.ColumnSpan="2" Panel.ZIndex="100" Background="#F5111318">
+      <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+        <Grid Width="84" Height="84" HorizontalAlignment="Center">
+          <Ellipse Stroke="#1E2430" StrokeThickness="6"/>
+          <Path Stroke="#58A6FF" StrokeThickness="6" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Data="M 42,3 A 39,39 0 0 1 81,42" RenderTransformOrigin="0.5,0.5">
+            <Path.RenderTransform><RotateTransform x:Name="spinA"/></Path.RenderTransform>
+          </Path>
+          <Path Stroke="#A78BFA" StrokeThickness="6" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Data="M 42,81 A 39,39 0 0 1 3,42" RenderTransformOrigin="0.5,0.5">
+            <Path.RenderTransform><RotateTransform x:Name="spinB"/></Path.RenderTransform>
+          </Path>
+          <TextBlock Text="E" FontSize="28" FontWeight="Bold" Foreground="#E6E8ED" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+        </Grid>
+        <TextBlock Text="EDUUTIL" FontSize="22" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,18,0,2"/>
+        <TextBlock Name="txtLoadStep" Text="Starting..." Foreground="#8D95A5" FontSize="12" HorizontalAlignment="Center"/>
+        <ProgressBar Name="barLoad" Width="260" Height="4" Margin="0,14,0,0" Minimum="0" Maximum="100" Value="5" Foreground="#58A6FF" Background="#262B35" BorderThickness="0"/>
+      </StackPanel>
+      <Border.Triggers>
+        <EventTrigger RoutedEvent="FrameworkElement.Loaded">
+          <BeginStoryboard>
+            <Storyboard RepeatBehavior="Forever">
+              <DoubleAnimation Storyboard.TargetName="spinA" Storyboard.TargetProperty="Angle" From="0" To="360" Duration="0:0:1.1"/>
+              <DoubleAnimation Storyboard.TargetName="spinB" Storyboard.TargetProperty="Angle" From="360" To="0" Duration="0:0:1.7"/>
+            </Storyboard>
+          </BeginStoryboard>
+        </EventTrigger>
+      </Border.Triggers>
+    </Border>
   </Grid>
 </Window>
 '@
@@ -1554,6 +2530,14 @@ function Build-TweakList($panel, $items, [bool]$isAdv, $recs, $headers) {
         $h.Style = $window.FindResource('H2')
         $count = @($items | Where-Object { $_.Category -eq $cat }).Count
         $h.Text = "$($cat.ToUpper())  ($count)"
+        $h.Cursor = 'Hand'; $h.ToolTip = 'Click to check / uncheck everything in this category'
+        $h.Tag = [pscustomobject]@{ Cat = $cat; Recs = $recs }
+        $h.Add_MouseLeftButtonUp({ param($sender, $e)
+            $info = $sender.Tag
+            $mine = @($info.Recs | Where-Object { $_.Category -eq $info.Cat -and $_.Row.Visibility -eq 'Visible' })
+            $anyOff = @($mine | Where-Object { -not $_.CB.IsChecked }).Count -gt 0
+            foreach ($r in $mine) { $r.CB.IsChecked = $anyOff }
+        })
         [void]$panel.Children.Add($h); $headers[$cat] = $h
         foreach ($t in ($items | Where-Object { $_.Category -eq $cat })) {
             $rec = New-TweakRow $t $isAdv
@@ -2357,11 +3341,350 @@ $btnClearBackup.Add_Click({
 })
 
 # ======================================================================
+#  TOOLBOX (v3)
+# ======================================================================
+function Write-ToolOut($text) { $txtToolsOut.AppendText([string]$text + [Environment]::NewLine); $txtToolsOut.ScrollToEnd(); Pump }
+function Get-FreeRamMB { [math]::Round((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory / 1KB) }
+
+# ---------- select-applied chips (bulk undo helpers) ----------
+$btnSelApplied.Add_Click({ foreach ($r in $script:TweakRecs) { $r.CB.IsChecked = ($r.Row.Visibility -eq 'Visible' -and $r.State -eq $true) } })
+$btnXSelApplied.Add_Click({ foreach ($r in $script:ExtremeRecs) { $r.CB.IsChecked = ($r.Row.Visibility -eq 'Visible' -and $r.State -eq $true) } })
+
+# ---------- RAM cleaner ----------
+function Initialize-MemApi {
+    if ('EduMem' -as [type]) { return }
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class EduMem {
+    [DllImport("psapi.dll")] static extern int EmptyWorkingSet(IntPtr hProcess);
+    [DllImport("ntdll.dll")] static extern uint NtSetSystemInformation(int InfoClass, IntPtr Info, int Length);
+    [DllImport("advapi32.dll", SetLastError=true)] static extern bool OpenProcessToken(IntPtr h, uint acc, out IntPtr tok);
+    [DllImport("advapi32.dll", SetLastError=true, CharSet=CharSet.Unicode)] static extern bool LookupPrivilegeValue(string host, string name, out long luid);
+    [DllImport("advapi32.dll", SetLastError=true)] static extern bool AdjustTokenPrivileges(IntPtr tok, bool disAll, ref TokPriv tp, int len, IntPtr prev, IntPtr relen);
+    [StructLayout(LayoutKind.Sequential, Pack=1)] struct TokPriv { public int Count; public long Luid; public int Attr; }
+    static bool EnablePrivilege(string name) {
+        IntPtr tok;
+        if (!OpenProcessToken(System.Diagnostics.Process.GetCurrentProcess().Handle, 0x28, out tok)) return false;
+        TokPriv tp = new TokPriv(); tp.Count = 1; tp.Attr = 2;
+        long luid;
+        if (!LookupPrivilegeValue(null, name, out luid)) return false;
+        tp.Luid = luid;
+        return AdjustTokenPrivileges(tok, false, ref tp, 0, IntPtr.Zero, IntPtr.Zero);
+    }
+    public static uint PurgeStandby() {
+        EnablePrivilege("SeProfileSingleProcessPrivilege");
+        IntPtr p = Marshal.AllocHGlobal(4); Marshal.WriteInt32(p, 4);
+        uint r = NtSetSystemInformation(80, p, 4);
+        Marshal.FreeHGlobal(p);
+        return r;
+    }
+    public static int TrimAll() {
+        int n = 0;
+        foreach (System.Diagnostics.Process pr in System.Diagnostics.Process.GetProcesses()) {
+            try { if (EmptyWorkingSet(pr.Handle) != 0) n++; } catch { }
+        }
+        return n;
+    }
+}
+'@
+}
+function Invoke-FreeRam {
+    Initialize-MemApi
+    $before = Get-FreeRamMB
+    $n = [EduMem]::TrimAll()
+    $r = [EduMem]::PurgeStandby()
+    Start-Sleep -Milliseconds 600
+    $after = Get-FreeRamMB
+    return [pscustomobject]@{ Trimmed = $n; Purge = $r; Freed = ($after - $before); Free = $after }
+}
+$btnFreeRam.Add_Click({
+    Set-Busy $true
+    try {
+        Log 'Freeing RAM...'
+        $res = Invoke-FreeRam
+        $msg = "RAM cleaned: trimmed $($res.Trimmed) processes, standby list purge code $($res.Purge). Free RAM now $($res.Free) MB (change: $($res.Freed) MB)."
+        Log $msg; Write-ToolOut $msg
+    } catch { Log "RAM cleaner failed: $($_.Exception.Message)" } finally { Set-Busy $false }
+})
+
+# ---------- boost mode (temporary, fully restored) ----------
+$script:Boost = $null
+$BoostServices = @('SysMain','WSearch','DiagTrack','Spooler','WerSvc')
+function Get-ActivePlanGuid {
+    $o = (powercfg /getactivescheme) -join ' '
+    if ($o -match '([0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12})') { return $Matches[1] }
+    return $null
+}
+function Start-Boost {
+    $state = @{ Plan = (Get-ActivePlanGuid); Stopped = @() }
+    powercfg /setactive SCHEME_MIN 2>$null | Out-Null
+    foreach ($n in $BoostServices) {
+        $s = Get-Service $n -ErrorAction SilentlyContinue
+        if ($s -and $s.Status -eq 'Running' -and $s.CanStop) {
+            try { Stop-Service $n -Force -ErrorAction Stop; $state.Stopped += $n } catch { }
+        }
+    }
+    try { [void](Invoke-FreeRam) } catch { }
+    $script:Boost = $state
+    $btnBoost.Content = 'Boost mode: OFF (restore)'; $btnBoost.Background = '#8A3B3B'
+    Log "Boost ON. Paused services: $($state.Stopped -join ', '). Power plan set to High performance."
+}
+function Stop-Boost {
+    if (-not $script:Boost) { return }
+    foreach ($n in $script:Boost.Stopped) { try { Start-Service $n -ErrorAction SilentlyContinue } catch { } }
+    if ($script:Boost.Plan) { powercfg /setactive $script:Boost.Plan 2>$null | Out-Null }
+    $script:Boost = $null
+    $btnBoost.Content = 'Boost mode: ON'; $btnBoost.Background = '#2F6B4F'
+    Log 'Boost OFF. Services and power plan restored.'
+}
+$btnBoost.Add_Click({
+    Set-Busy $true
+    try {
+        if ($script:Boost) { Stop-Boost }
+        else {
+            if (-not (Confirm-Action "Boost mode will, until you turn it off or close EduUtil:`n- switch to the High performance power plan`n- pause SysMain, Windows Search, DiagTrack, Print Spooler and Error Reporting`n- trim RAM`n`nNothing is changed permanently. Continue?")) { return }
+            Start-Boost
+        }
+    } finally { Set-Busy $false }
+})
+$window.Add_Closing({ try { Stop-Boost } catch { } })
+
+# ---------- power plans ----------
+$btnPlanBal.Add_Click({ powercfg /setactive SCHEME_BALANCED | Out-Null; Log 'Power plan: Balanced.' })
+$btnPlanHigh.Add_Click({ powercfg /setactive SCHEME_MIN | Out-Null; if ($LASTEXITCODE -eq 0) { Log 'Power plan: High performance.' } else { Log 'High performance plan is not available on this PC. Use the Ultimate Performance tweak instead.' } })
+$btnPlanSaver.Add_Click({ powercfg /setactive SCHEME_MAX | Out-Null; Log 'Power plan: Power saver.' })
+$btnPlanShow.Add_Click({ Write-ToolOut ((powercfg /getactivescheme) -join ' '); Write-ToolOut ((powercfg /list) -join [Environment]::NewLine) })
+
+# ---------- process manager ----------
+$ProtectedProcs = @('system','idle','registry','smss','csrss','wininit','winlogon','services','lsass','svchost','dwm','fontdrvhost','memory compression','msmpeng','explorer')
+function Refresh-Procs {
+    $lstProc.Items.Clear()
+    $procs = Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.WorkingSet64 -gt 0 } | Sort-Object WorkingSet64 -Descending | Select-Object -First 30
+    foreach ($p in $procs) {
+        $item = New-Object System.Windows.Controls.ListBoxItem
+        $item.Content = ('{0,-30} PID {1,-7} {2,7} MB' -f $p.ProcessName, $p.Id, [math]::Round($p.WorkingSet64 / 1MB))
+        $item.Tag = [pscustomobject]@{ Id = $p.Id; Name = $p.ProcessName }
+        $item.Foreground = '#C9CED8'
+        [void]$lstProc.Items.Add($item)
+    }
+    Log "Process list refreshed ($($lstProc.Items.Count) shown)."
+}
+$btnProcList.Add_Click({ Refresh-Procs })
+$btnProcKill.Add_Click({
+    $sel = $lstProc.SelectedItem
+    if (-not $sel) { Log 'Select a process in the list first.'; return }
+    $info = $sel.Tag
+    if ($ProtectedProcs -contains $info.Name.ToLower() -or $info.Id -eq $PID) { Log "$($info.Name) is protected and will not be ended."; return }
+    if (-not (Confirm-Action "End $($info.Name) (PID $($info.Id))? Unsaved work in that program is lost." 'Warning')) { return }
+    try { Stop-Process -Id $info.Id -Force -ErrorAction Stop; Log "Ended $($info.Name) (PID $($info.Id))."; Refresh-Procs }
+    catch { Log "Could not end $($info.Name): $($_.Exception.Message)" }
+})
+
+# ---------- system tools ----------
+$btnBrowserCache.Add_Click({
+    if (-not (Confirm-Action 'Clear Chrome, Edge, Brave and Firefox caches? Close those browsers first. Logins, history and bookmarks are kept.')) { return }
+    $paths = New-Object System.Collections.Generic.List[string]
+    $roots = @("$env:LOCALAPPDATA\Google\Chrome\User Data", "$env:LOCALAPPDATA\Microsoft\Edge\User Data", "$env:LOCALAPPDATA\BraveSoftware\Brave-Browser\User Data")
+    foreach ($r in $roots) {
+        if (Test-Path -LiteralPath $r) {
+            foreach ($prof in (Get-ChildItem -LiteralPath $r -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq 'Default' -or $_.Name -like 'Profile *' })) {
+                foreach ($sub in 'Cache','Code Cache','GPUCache','Service Worker\CacheStorage') { $paths.Add((Join-Path $prof.FullName $sub)) }
+            }
+        }
+    }
+    $ff = "$env:LOCALAPPDATA\Mozilla\Firefox\Profiles"
+    if (Test-Path -LiteralPath $ff) { foreach ($d in (Get-ChildItem -LiteralPath $ff -Directory -ErrorAction SilentlyContinue)) { $paths.Add((Join-Path $d.FullName 'cache2')) } }
+    Set-Busy $true; try { Log 'Clearing browser caches...'; $mb = Clear-Folders $paths.ToArray() } finally { Set-Busy $false }
+    $msg = "Browser caches cleared: $mb MB freed."; Log $msg; Write-ToolOut $msg
+})
+$btnLargeFiles.Add_Click({
+    Set-Busy $true
+    try {
+        Log 'Scanning your user folder for the largest files (this can take a while)...'
+        $job = Start-Job -ArgumentList $env:USERPROFILE -ScriptBlock {
+            param($root)
+            $top = New-Object System.Collections.Generic.List[object]; $min = 0
+            Get-ChildItem -LiteralPath $root -Recurse -File -Force -ErrorAction SilentlyContinue | ForEach-Object {
+                if ($top.Count -lt 30 -or $_.Length -gt $min) {
+                    $top.Add([pscustomobject]@{ L = $_.Length; P = $_.FullName })
+                    if ($top.Count -gt 30) { $top = [System.Collections.Generic.List[object]]@($top | Sort-Object L -Descending | Select-Object -First 30); $min = $top[$top.Count - 1].L }
+                }
+            }
+            $top | Sort-Object L -Descending | ForEach-Object { '{0,9} MB   {1}' -f [math]::Round($_.L / 1MB, 1), $_.P }
+        }
+        while ($job.State -eq 'Running') { Pump; Start-Sleep -Milliseconds 200 }
+        $out = @(Receive-Job $job -ErrorAction SilentlyContinue); Remove-Job $job -Force
+        $txtToolsOut.Clear(); Write-ToolOut "30 largest files under $env:USERPROFILE`n"
+        foreach ($l in $out) { Write-ToolOut $l }
+        Log 'Largest-file scan finished.'
+    } catch { Log "Scan failed: $($_.Exception.Message)" } finally { Set-Busy $false }
+})
+$btnExportApps.Add_Click({
+    $keys = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*'
+    $apps = Get-ItemProperty -Path $keys -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName } |
+        Select-Object DisplayName, DisplayVersion, Publisher, InstallDate | Sort-Object DisplayName -Unique
+    $out = Join-Path ([Environment]::GetFolderPath('Desktop')) 'installed-programs.csv'
+    $apps | Export-Csv -LiteralPath $out -NoTypeInformation -Encoding UTF8
+    $msg = "Exported $(@($apps).Count) programs to $out"; Log $msg; Write-ToolOut $msg
+})
+$btnWifi.Add_Click({
+    if (-not (Confirm-Action 'Show the passwords of Wi-Fi networks saved on THIS PC? They will appear in the output box below.')) { return }
+    $tmp = Join-Path $env:TEMP ('eduwifi_' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $tmp -Force | Out-Null
+    try {
+        netsh wlan export profile key=clear folder="$tmp" 2>&1 | Out-Null
+        $files = @(Get-ChildItem -LiteralPath $tmp -Filter '*.xml' -ErrorAction SilentlyContinue)
+        $txtToolsOut.Clear()
+        if ($files.Count -eq 0) { Write-ToolOut 'No saved Wi-Fi profiles found (or no Wi-Fi adapter).' }
+        foreach ($f in $files) {
+            try {
+                $x = [xml](Get-Content -LiteralPath $f.FullName -Raw)
+                $pw = $x.WLANProfile.MSM.security.sharedKey.keyMaterial
+                if (-not $pw) { $pw = '(open network / no stored key)' }
+                Write-ToolOut ('{0,-32} {1}' -f $x.WLANProfile.name, $pw)
+            } catch { }
+        }
+        Log "Listed $($files.Count) saved Wi-Fi networks."
+    } finally { Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue }
+})
+$btnActivation.Add_Click({
+    try {
+        $p = Get-CimInstance SoftwareLicensingProduct -Filter "PartialProductKey IS NOT NULL AND ApplicationId='55c92734-d682-4d71-983e-d6ec3f16059f'" -ErrorAction Stop | Select-Object -First 1
+        $st = switch ([int]$p.LicenseStatus) { 0 {'Unlicensed'} 1 {'Licensed (activated)'} 2 {'Out-of-box grace period'} 3 {'Out-of-tolerance grace period'} 4 {'Non-genuine grace period'} 5 {'Notification mode'} 6 {'Extended grace period'} default {'Unknown'} }
+        $msg = "$($p.Name): $st"; Log $msg; Write-ToolOut $msg
+    } catch { Log "Could not read activation status: $($_.Exception.Message)" }
+})
+$btnRebuildSearch.Add_Click({
+    if (-not (Confirm-Action 'Rebuild the Windows Search index? Search results may be incomplete for a while as it re-indexes.')) { return }
+    Set-Busy $true
+    try {
+        Stop-Service WSearch -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath "$env:ProgramData\Microsoft\Search\Data\Applications\Windows\Windows.edb" -Force -ErrorAction SilentlyContinue
+        Start-Service WSearch -ErrorAction SilentlyContinue
+    } finally { Set-Busy $false }
+    Log 'Search index reset. Windows will rebuild it in the background.'
+})
+$btnClearEvents.Add_Click({
+    if (-not (Confirm-Action 'Clear ALL Windows event logs? Troubleshooting history is lost. This cannot be undone.' 'Warning')) { return }
+    Set-Busy $true
+    $n = 0
+    try {
+        foreach ($l in (Get-WinEvent -ListLog * -ErrorAction SilentlyContinue)) {
+            try { [System.Diagnostics.Eventing.Reader.EventLogSession]::GlobalSession.ClearLog($l.LogName); $n++ } catch { }
+            if ($n % 15 -eq 0) { Pump }
+        }
+    } finally { Set-Busy $false }
+    Log "Cleared $n event logs."
+})
+$btnReregStore.Add_Click({
+    if (-not (Confirm-Action 'Re-register all built-in Store apps for all users? Fixes broken Start/Settings/Store/Photos. Takes a few minutes; errors for in-use apps are ignored.')) { return }
+    $cmd = 'Get-AppxPackage -AllUsers | ForEach-Object { if ($_.InstallLocation) { Add-AppxPackage -DisableDevelopmentMode -Register (''{0}\AppXManifest.xml'' -f $_.InstallLocation) -ErrorAction SilentlyContinue } }'
+    Log 'Re-registering Store apps...'
+    $code = Invoke-Hidden 'powershell.exe' "-NoProfile -ExecutionPolicy Bypass -Command `"$cmd`""
+    Log "Store apps re-registered (code $code). Restart if anything still misbehaves."
+})
+$btnGodMode.Add_Click({
+    $gm = Join-Path ([Environment]::GetFolderPath('Desktop')) 'GodMode.{ED7BA470-8E54-465E-825C-99712043E01C}'
+    if (-not (Test-Path -LiteralPath $gm)) { New-Item -ItemType Directory -Path $gm | Out-Null }
+    Log 'God Mode folder created on your desktop.'
+})
+$btnHostsOpen.Add_Click({ Start-Process notepad.exe $HostsFile })
+
+# ---------- update checker ----------
+$btnUpdateCheck.Add_Click({
+    try {
+        Log 'Checking GitHub for a newer EduUtil...'
+        $txt = (Invoke-WebRequest -UseBasicParsing -Uri $RepoUrl -TimeoutSec 15).Content
+        if ($txt -match '\$AppVersion\s*=\s*''([\d\.]+)''') {
+            $remote = [version]$Matches[1]; $local = [version]$AppVersion
+            if ($remote -gt $local) {
+                Log "Update available: v$remote (you have v$local)."
+                if (Confirm-Action "EduUtil v$remote is available (you have v$local). Download it and restart now?") {
+                    $args2 = "-NoProfile -ExecutionPolicy Bypass -Command `"irm '$RepoUrl' | iex`""
+                    Start-Process powershell.exe -ArgumentList $args2 -Verb RunAs | Out-Null
+                    $window.Close()
+                }
+            } else { Log "You are on the latest version (v$local)."; Write-ToolOut "EduUtil v$local is up to date." }
+        } else { Log 'Could not read the version number from GitHub.' }
+    } catch { Log "Update check failed: $($_.Exception.Message)" }
+})
+
+# ---------- Windows features ----------
+function Enable-Feat($label, $features) {
+    if (-not (Confirm-Action "Enable $label? Windows may download components and ask for a restart.")) { return }
+    foreach ($f in $features) {
+        Log "Enabling $f ..."
+        $code = Invoke-Hidden 'dism.exe' "/Online /Enable-Feature /FeatureName:$f /All /NoRestart /Quiet"
+        $note = if ($code -eq 0) { 'done' } elseif ($code -eq 3010) { 'done, restart required' } else { 'failed or unavailable on this edition' }
+        Log "  $f -> exit code $code ($note)"; Write-ToolOut "$f : $note"
+    }
+}
+$btnFeatNet35.Add_Click({   Enable-Feat '.NET Framework 3.5' @('NetFx3') })
+$btnFeatWsl.Add_Click({     Enable-Feat 'WSL and Virtual Machine Platform' @('Microsoft-Windows-Subsystem-Linux','VirtualMachinePlatform') })
+$btnFeatSandbox.Add_Click({ Enable-Feat 'Windows Sandbox (Pro/Enterprise only)' @('Containers-DisposableClientVM') })
+$btnFeatHyperV.Add_Click({  Enable-Feat 'Hyper-V (Pro/Enterprise only)' @('Microsoft-Hyper-V-All') })
+$btnFeatTelnet.Add_Click({  Enable-Feat 'Telnet client' @('TelnetClient') })
+$btnFeatDialog.Add_Click({  Start-Process optionalfeatures.exe })
+
+# ---------- quick launch grid ----------
+$QuickItems = @(
+    @('Task Manager','taskmgr.exe',''), @('Device Manager','devmgmt.msc',''), @('Services','services.msc',''), @('Task Scheduler','taskschd.msc',''),
+    @('Event Viewer','eventvwr.msc',''), @('Disk Management','diskmgmt.msc',''), @('Computer Management','compmgmt.msc',''), @('Registry Editor','regedit.exe',''),
+    @('Group Policy Editor','gpedit.msc',''), @('Resource Monitor','resmon.exe',''), @('Performance Monitor','perfmon.exe',''), @('System Configuration','msconfig.exe',''),
+    @('System Information','msinfo32.exe',''), @('DirectX Diagnostics','dxdiag.exe',''), @('Power Options','powercfg.cpl',''), @('Network Connections','ncpa.cpl',''),
+    @('Programs and Features','appwiz.cpl',''), @('Environment Variables','rundll32.exe','sysdm.cpl,EditEnvironmentVariables'), @('Advanced System Properties','SystemPropertiesAdvanced.exe',''),
+    @('Performance Options','SystemPropertiesPerformance.exe',''), @('Sound settings','mmsys.cpl',''), @('Mouse settings','main.cpl',''),
+    @('Firewall (advanced)','wf.msc',''), @('Windows Security','windowsdefender:',''), @('Disk Cleanup','cleanmgr.exe',''), @('Windows Terminal','wt.exe','')
+)
+foreach ($q in $QuickItems) {
+    $b = New-Object System.Windows.Controls.Button
+    $b.Content = $q[0]; $b.Style = $window.FindResource('Tool'); $b.Width = 200; $b.Tag = $q
+    $b.Add_Click({ param($s, $e)
+        $t = $s.Tag
+        try {
+            if ($t[2]) { Start-Process $t[1] $t[2] } else { Start-Process $t[1] }
+        } catch { Log "$($t[0]) is not available on this PC." }
+    })
+    [void]$quickLaunch.Children.Add($b)
+}
+
+# ---------- live monitor in the sidebar ----------
+$script:CpuCounter = $null
+try { $script:CpuCounter = New-Object System.Diagnostics.PerformanceCounter('Processor', '% Processor Time', '_Total'); [void]$script:CpuCounter.NextValue() } catch { }
+function Update-Live {
+    try {
+        if ($script:CpuCounter) { $c = [int][math]::Round($script:CpuCounter.NextValue()); $barCpu.Value = $c; $txtLiveCpu.Text = "$c%" }
+        $os = Get-CimInstance Win32_OperatingSystem -ErrorAction Stop
+        $total = [double]$os.TotalVisibleMemorySize; $used = $total - [double]$os.FreePhysicalMemory
+        $pct = [int][math]::Round(100 * $used / $total)
+        $barRam.Value = $pct; $txtLiveRam.Text = "$pct%  $([math]::Round($used / 1MB, 1))/$([math]::Round($total / 1MB, 1)) GB"
+        $up = (Get-Date) - $os.LastBootUpTime
+        $txtLiveUp.Text = 'Uptime {0}d {1}h {2}m' -f $up.Days, $up.Hours, $up.Minutes
+    } catch { }
+}
+$script:LiveTimer = New-Object System.Windows.Threading.DispatcherTimer
+$script:LiveTimer.Interval = [TimeSpan]::FromSeconds(2)
+$script:LiveTimer.Add_Tick({ Update-Live })
+
+# ---------- loading overlay helpers ----------
+function Set-LoadStep($text, $pct) {
+    if ($txtLoadStep) { $txtLoadStep.Text = $text }
+    if ($barLoad) { $barLoad.Value = $pct }
+    Pump
+}
+function Hide-LoadOverlay {
+    $fade = New-Object System.Windows.Media.Animation.DoubleAnimation(1.0, 0.0, [TimeSpan]::FromMilliseconds(450))
+    $fade.Add_Completed({ $loadingOverlay.Visibility = 'Collapsed' })
+    $loadingOverlay.BeginAnimation([System.Windows.UIElement]::OpacityProperty, $fade)
+}
+
+# ======================================================================
 #  NAVIGATION
 # ======================================================================
 $Pages = [ordered]@{
     navTweaks = 'pgTweaks'; navExtreme = 'pgExtreme'; navGame = 'pgGame'; navDebloat = 'pgDebloat'; navStartup = 'pgStartup'
-    navInstall = 'pgInstall'; navClean = 'pgClean'; navNetwork = 'pgNetwork'; navSysInfo = 'pgSysInfo'; navLog = 'pgLog'
+    navInstall = 'pgInstall'; navClean = 'pgClean'; navTools = 'pgTools'; navNetwork = 'pgNetwork'; navSysInfo = 'pgSysInfo'; navLog = 'pgLog'
 }
 $script:SysInfoLoaded = $false
 $script:StartupLoaded = $false
@@ -2390,7 +3713,16 @@ $window.Add_ContentRendered({
     Show-Page 'navTweaks'
     Log "EduUtil v$AppVersion ready. Checking which tweaks are already applied..."
     Set-Busy $true
-    try { Update-RecStatus $script:TweakRecs; Update-RecStatus $script:ExtremeRecs } finally { Set-Busy $false }
-    Log 'Ready. Pick a preset or select individual tweaks, then click Apply selected.'
+    try {
+        Set-LoadStep 'Checking everyday tweaks...' 20
+        Update-RecStatus $script:TweakRecs
+        Set-LoadStep 'Checking advanced tweaks...' 65
+        Update-RecStatus $script:ExtremeRecs
+        Set-LoadStep 'Starting live monitor...' 92
+        Update-Live; $script:LiveTimer.Start()
+        Set-LoadStep 'Ready' 100
+    } finally { Set-Busy $false }
+    Hide-LoadOverlay
+    Log "Ready. $($script:TweakRecs.Count) everyday + $($script:ExtremeRecs.Count) advanced tweaks loaded. Pick a preset or click a category title to check it all, then Apply selected."
 })
 [void]$window.ShowDialog()
